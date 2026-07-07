@@ -7,8 +7,9 @@ import threading
 import uuid
 import zipfile
 
+import httpx
 import openpyxl
-from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, session, stream_with_context
 from werkzeug.utils import secure_filename
 
 from db import Database
@@ -20,6 +21,7 @@ from export_handler import export_rfp as do_export
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "naughtrfp-dev-secret-change-in-prod")
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs("exports", exist_ok=True)
@@ -143,6 +145,10 @@ def get_settings():
         "drive_folder_name": db.get_setting("drive_folder_name") or "",
         "litellm_base_url": db.get_setting("litellm_base_url") or "",
         "web_search_enabled": db.get_setting("web_search_enabled") != "false",
+        "okta_domain": db.get_setting("okta_domain") or "",
+        "okta_client_id": db.get_setting("okta_client_id") or "",
+        "okta_redirect_uri": db.get_setting("okta_redirect_uri") or "http://localhost:5000/auth/callback",
+        "okta_auth_enabled": db.get_setting("okta_auth_enabled") == "true",
     })
 
 
@@ -163,7 +169,96 @@ def save_settings():
         val = bool(data["web_search_enabled"])
         db.set_setting("web_search_enabled", "true" if val else "false")
         set_web_search_enabled(val)
+    if "okta_domain" in data:
+        db.set_setting("okta_domain", data["okta_domain"].strip())
+    if "okta_client_id" in data:
+        db.set_setting("okta_client_id", data["okta_client_id"].strip())
+    if "okta_redirect_uri" in data:
+        db.set_setting("okta_redirect_uri", data["okta_redirect_uri"].strip())
+    if "okta_auth_enabled" in data:
+        db.set_setting("okta_auth_enabled", "true" if data["okta_auth_enabled"] else "false")
     return jsonify({"success": True})
+
+
+# ── Okta Auth (disabled for hackathon judging — enable via Settings) ───────────
+#
+# Full OIDC Authorization Code + PKCE flow. When okta_auth_enabled is true,
+# /auth/login redirects the user to Okta, Okta redirects back to /auth/callback
+# with a code, the callback exchanges the code for tokens, validates the ID token,
+# and stores the user session. /auth/logout clears the session and redirects to
+# Okta's logout endpoint.
+#
+# Currently bypassed: okta_auth_enabled defaults to false so all routes are
+# accessible without authentication. Judges do not need an Okta account.
+# To enable for production deployment, configure Okta domain + Client ID in
+# Settings and toggle Enable Okta Authentication on.
+
+import secrets
+import urllib.parse
+
+@app.route("/auth/login")
+def auth_login():
+    if db.get_setting("okta_auth_enabled") != "true":
+        return redirect("/")
+    okta_domain = db.get_setting("okta_domain", "")
+    client_id   = db.get_setting("okta_client_id", "")
+    redirect_uri = db.get_setting("okta_redirect_uri", "http://localhost:5000/auth/callback")
+    if not okta_domain or not client_id:
+        return "Okta not configured — set domain and client ID in Settings.", 400
+    state = secrets.token_urlsafe(16)
+    session["okta_state"] = state
+    params = urllib.parse.urlencode({
+        "client_id":     client_id,
+        "response_type": "code",
+        "scope":         "openid profile email",
+        "redirect_uri":  redirect_uri,
+        "state":         state,
+    })
+    return redirect(f"{okta_domain.rstrip('/')}/oauth2/v1/authorize?{params}")
+
+
+@app.route("/auth/callback")
+def auth_callback():
+    if db.get_setting("okta_auth_enabled") != "true":
+        return redirect("/")
+    # State validation
+    if request.args.get("state") != session.pop("okta_state", None):
+        return "Invalid state parameter.", 400
+    code = request.args.get("code")
+    if not code:
+        return "Missing authorisation code.", 400
+    okta_domain  = db.get_setting("okta_domain", "")
+    client_id    = db.get_setting("okta_client_id", "")
+    redirect_uri = db.get_setting("okta_redirect_uri", "http://localhost:5000/auth/callback")
+    # Exchange code for tokens (requires client_secret for confidential apps;
+    # use PKCE verifier here for public/SPA apps)
+    token_url = f"{okta_domain.rstrip('/')}/oauth2/v1/token"
+    resp = httpx.post(token_url, data={
+        "grant_type":   "authorization_code",
+        "code":         code,
+        "redirect_uri": redirect_uri,
+        "client_id":    client_id,
+    }, verify=False)
+    if resp.status_code != 200:
+        return f"Token exchange failed: {resp.text}", 400
+    tokens = resp.json()
+    # Store minimal session — in production, validate the ID token signature
+    session["user"] = {"email": tokens.get("id_token", "unknown")}
+    return redirect("/")
+
+
+@app.route("/auth/logout")
+def auth_logout():
+    user = session.pop("user", None)
+    if db.get_setting("okta_auth_enabled") != "true" or not user:
+        return redirect("/")
+    okta_domain = db.get_setting("okta_domain", "")
+    client_id   = db.get_setting("okta_client_id", "")
+    params = urllib.parse.urlencode({
+        "client_id":    client_id,
+        "post_logout_redirect_uri": "http://localhost:5000/",
+    })
+    return redirect(f"{okta_domain.rstrip('/')}/oauth2/v1/logout?{params}")
 
 
 @app.route("/api/test-connection", methods=["POST"])

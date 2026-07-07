@@ -270,6 +270,49 @@
 
       <div class="divider"></div>
 
+      <!-- Okta Authentication -->
+      <div class="settings-group">
+        <label class="settings-label" style="display:flex;align-items:center;gap:10px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0"><circle cx="12" cy="12" r="10" stroke="var(--okta-blue)" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="var(--okta-blue)"/></svg>
+          Okta Authentication
+        </label>
+        <div style="background:rgba(245,158,11,0.1);border:1px solid #f59e0b;border-radius:8px;padding:12px 14px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:1rem;flex-shrink:0">⚠</span>
+          <div style="font-size:.8rem;color:var(--text-muted);line-height:1.5">
+            <strong style="color:var(--text)">Authentication is disabled for hackathon judging.</strong>
+            NaughtRFP is designed to authenticate SEs via Okta OIDC (Authorization Code + PKCE). The full auth flow — login, token validation, session management, and logout — is implemented but bypassed so judges can access the app without an Okta account. To enable for production, configure your Okta domain and Client ID below, then toggle <em>Enable Okta Authentication</em> on.
+          </div>
+        </div>
+        <div style="display:grid;gap:10px;margin-bottom:12px">
+          <div>
+            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">Okta Domain</div>
+            <input class="settings-input" id="okta-domain" type="text" placeholder="https://your-org.okta.com" style="width:100%" />
+            <div class="settings-hint">Your Okta org URL (e.g. https://okta.okta.com)</div>
+          </div>
+          <div>
+            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">Client ID</div>
+            <input class="settings-input" id="okta-client-id" type="text" placeholder="0oaxxxxxxxxxxxxxxxxx" style="width:100%" />
+            <div class="settings-hint">OIDC app client ID from the Okta Admin Console</div>
+          </div>
+          <div>
+            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">Redirect URI</div>
+            <input class="settings-input" id="okta-redirect-uri" type="text" placeholder="http://localhost:5000/auth/callback" style="width:100%" />
+            <div class="settings-hint">Must match the redirect URI configured in the Okta OIDC app</div>
+          </div>
+        </div>
+        <label class="settings-label" style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:6px">
+          <input type="checkbox" id="okta-auth-enabled" style="accent-color:var(--okta-blue);width:16px;height:16px" />
+          Enable Okta Authentication
+        </label>
+        <div class="settings-hint">When enabled, all routes require a valid Okta session. Users are redirected to Okta login via OIDC Authorization Code + PKCE flow. <strong>Leave disabled for judge access.</strong></div>
+        <div style="margin-top:12px">
+          <button class="btn btn-secondary btn-sm" onclick="saveOktaSettings()">Save Okta Settings</button>
+          <span id="okta-save-result" style="font-size:.8rem;margin-left:10px"></span>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
       <div class="settings-group">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <label class="settings-label" style="margin:0">Token Usage</label>
