@@ -110,15 +110,17 @@ Upload
 
 | Agent | Model | Tools | Key Output |
 |---|---|---|---|
-| **Customer Agent** | claude-sonnet-4-6 | file read | customer_name, industry, rfp_number, scope_summary |
-| **Parser Agent** | claude-sonnet-4-6 | openpyxl, csv | Structured requirement list, column mapping |
-| **Analysis Agent** | claude-sonnet-4-6 (batch) | — | Okta product mapping, refined categories, risk pre-scores |
-| **Research Agent** | — (local) | SQLite FTS5, httpx | Pre-fetched KB context for all questions |
-| **Answer Agent** | claude-sonnet-4-6 | search_kb, search_web, flag_for_review | Vendor response, confidence, fit/risk scores, citations |
-| **Scoring Agent** | — (aggregation) | — | Overall fit score /5, risk score /5 |
-| **Review Agent** | — (rule-based) | — | High-risk ⚠ warnings (stripped on export) |
-| **KB Ingestion Agent** | — (local) | SQLite FTS5 | New KB entries, deduplication |
-| **Demo Prep Agent** | claude-sonnet-4-6 | — | Ordered demo sections with steps and talking points |
+| **Customer Agent** | 🪶 claude-haiku-4-5 | file read | customer_name, industry, rfp_number, scope_summary |
+| **Parser Agent** | 🪶 claude-haiku-4-5 | openpyxl, csv | Structured requirement list, column mapping |
+| **Analysis Agent** | ⚡ claude-sonnet-4-6 (batch) | — | Okta product mapping, refined categories, risk pre-scores |
+| **Research Agent** | 🔧 local only | SQLite FTS5, httpx | Pre-fetched KB context for all questions |
+| **Answer Agent** | ⚡ claude-sonnet-4-6 | search_kb, search_web, flag_for_review | Vendor response, confidence, fit/risk scores, citations |
+| **Scoring Agent** | 🔧 aggregation | — | Overall fit score /5, risk score /5 |
+| **Review Agent** | 🔧 rule-based | — | High-risk ⚠ warnings (stripped on export) |
+| **KB Ingestion Agent** | 🔧 local only | SQLite FTS5 | New KB entries, deduplication |
+| **Demo Prep Agent** | ⚡ claude-sonnet-4-6 | — | Ordered demo sections with steps and talking points |
+
+> ⚡ Sonnet — heavy reasoning & tool use · 🪶 Haiku — fast structured extraction · 🔧 Local — no LLM
 
 ### Agentic Tool Use
 
@@ -233,7 +235,7 @@ When the KB doesn't have sufficient context, the Research Agent fetches live con
 | Component | Technology | Why |
 |---|---|---|
 | Backend | Python 3.14 + Flask | Lightweight, no build step needed |
-| AI | Anthropic claude-sonnet-4-6 via Okta LiteLLM proxy (`llm.atko.ai`) | Best balance of speed and quality for RFP responses |
+| AI | claude-sonnet-4-6 (reasoning) + claude-haiku-4-5 (extraction) via Okta LiteLLM proxy (`llm.atko.ai`) | Right model for each agent — Sonnet for tool use and synthesis, Haiku for fast structured extraction |
 | Database | SQLite + FTS5 | Zero-install, 0.1ms KB searches, thread-local connections |
 | Frontend | Vanilla JS + HTML (no framework, no build) | Runs directly in Chrome, zero install for judges |
 | Excel I/O | openpyxl | Read/write XLSX with colour-coded cells |
@@ -380,15 +382,21 @@ This loads 615 entries from `Okta_SIG_Core.xlsm` into the KB.
 
 ```
 rfp-responder/
-├── app.py              Flask backend — all routes, SSE streaming, multi-doc support
+├── app.py              Flask backend — all routes, SSE streaming, Okta auth stubs
 ├── agents.py           All 9 agent classes, tools, web search, KB search
 ├── db.py               SQLite wrapper — thread-local connections, FTS5, multi-doc
 ├── export_handler.py   CSV/XLSX export with colour-coded response codes
 ├── seed_kb.py          25 hand-crafted Okta baseline Q&A pairs
 ├── seed_sig.py         Loads Okta_SIG_Core.xlsm → KB (615 entries)
 ├── sample_rfp.csv      34-requirement IGA RFP for testing
+├── .env.example        Credential template — copy to .env and fill in API key
+├── SESSION_LOG.md      Full build session log — decisions, problems, prompts
 ├── CLAUDE.md           Claude Code project instructions
 ├── README.md           This file
+├── docs/
+│   ├── solution.md     Problem statement and scope (hackathon Day 1 spec)
+│   ├── prd.md          Full PRD with 34 user stories
+│   └── multiAgentDesign.md  Multi-agent architecture design (817 lines)
 ├── templates/
 │   └── index.html      Single-page app shell — collapsible sidebar, all pages
 ├── static/

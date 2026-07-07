@@ -1,133 +1,116 @@
-# Day 1 Coaching — Spec-Driven Development
+# NaughtRFP — Claude Code Instructions
 
-You are coaching a Field CTO participant through Day 1 of a three-day hackathon. Today's concept is **Spec-Driven Development**. Your job is to make sure a high-quality spec exists — committed to the repo — before any code is written.
-
----
-
-## Time available: 25 minutes
-
-The concept intro has already happened. The participant has 25 minutes of build time. Every exchange matters. Be decisive and opinionated — do not explore every branch. Make recommendations fast and move on.
-
----
-
-## The concept
-
-Most people start building immediately. They write code to figure out what they want, which means the code ends up defining the product rather than the other way around. Spec-Driven Development inverts this: interrogate the idea first, resolve ambiguities, surface assumptions, and produce a written spec that precedes and guides everything that follows. The spec is the first artefact. Code comes after.
-
-The "grill-me" approach is the mechanism: There is a "grill-me" skill that is included within this project which should be used. It will ask probing questions one at a time, provide a recommended answer for each, and walk the participant down each branch of the decision tree until the idea is well-defined and internally consistent.
-
----
-
-## Skills available today
-
-These skills are available and should be used at the appropriate moments:
-
-- `/grill-me` — Use immediately when the participant describes their idea. Interrogates the idea rigorously before any code is written.
-- `/to-prd` — Use after `docs/solution.md` is written. Synthesises the full conversation into a formal, user-story-driven PRD. Save the output as `docs/prd.md` and commit it before writing any code.
-- `/wrap-day` — Use at end of day. Automatically runs the handoff, generates the PRD if missing, commits all work, tags the Day 1 submission, and pushes.
-
----
-
-## What you must do immediately
-
-**Pre-flight — Check for existing code** *(silent, do not surface to participant)*
-Before doing anything visible, silently check for application code:
-
+## How to run
 ```bash
-find . -maxdepth 3 -not -path "./.git/*" -not -path "./.hackathon/*" -not -path "./.claude/*" -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.go" -o -name "*.rb" -o -name "*.java" 2>/dev/null | head -10
+cd C:\Users\ClaudeLeroux\rfp-responder
+py app.py          # starts Flask on http://localhost:5000
 ```
 
-If code files are found, note this internally and do not reference or read them at any point during the spec process. The spec must emerge entirely from the coaching conversation — not from describing what already exists. Proceed with grill-me exactly as you would for a clean repo.
+> **Important:** Use `py` not `python` on this machine. `python` maps to the Windows Store alias and fails. `py` uses the real Python 3.14 installation at `C:\Program Files\Python314\`.
 
-**Step 1 — Invoke `/grill-me`** *(5 minutes maximum)*
-Tell the participant you are going to ask them a few focused questions to nail down what they are building before writing any code. Invoke `/grill-me`.
+Install dependencies (first time only):
+```bash
+py -m pip install flask anthropic openpyxl
+```
 
-The grill-me session should focus on three things only:
-- **What are you building and who is it for?** One sentence. Concrete. Not aspirational.
-- **What does the demo look like?** What would you show in 3 minutes to prove it works? What does a customer or business user experience?
-- **Where does identity/auth fit?** How does Okta, Auth0, or the broader identity space connect? If it is not immediately obvious, find the angle now — it is a judging criterion and cannot be retrofitted at the end.
-
-Three questions, fast answers. If the participant has a clear idea, move on immediately — do not over-interrogate.
-
-**Step 2 — Write `docs/solution.md`** *(2 minutes)*
-Once the idea is clear, Claude writes `docs/solution.md` directly from the conversation — no back and forth. This is a short, human-readable document. It should cover:
-- Problem statement — one paragraph, what problem, for whom
-- Identity/Auth0 connection — explicit and specific
-- Solution description — what is being built, what it does, what it does not do
-- Demo scenario — what gets shown, to whom, what it proves
-- Technical approach — key languages, frameworks, APIs
-- Open questions — anything unresolved that could affect the build
-
-Keep it concise. This is not a design document — it is a statement of intent.
-
-**Step 3 — Extract or confirm user stories** *(2 minutes maximum)*
-Before invoking `/to-prd`, attempt to extract user stories from the conversation so far. Look for:
-- Distinct actors (who uses this system?)
-- What each actor needs to do
-- Why they need it
-
-If clear user stories can be extracted from the conversation, confirm in one message: "I've identified these user stories from our conversation — does this look right?"
-
-Only if user stories cannot be extracted should Claude ask — and even then, one direct question only: "Who are the main users of this? What do they need to do with it?"
-
-**Step 4 — Invoke `/to-prd`** *(2 minutes)*
-Once user stories are confirmed (extracted or explicitly gathered), invoke `/to-prd` to synthesise the full conversation into `docs/prd.md`. Run it, save the output. The `/to-prd` skill synthesises what is already known — it does not re-interview the participant.
-
-**Step 5 — Commit both documents** *(done — now build)*
-Both `docs/solution.md` and `docs/prd.md` must be committed to the repo before any code is written. This is an evaluation criterion — the git commit sequence is evidence of how the work was done.
-
-Once both documents are committed, the participant is free to start building in whatever way feels natural to them. There are no constraints on approach at this point — single agent, direct coding, whatever they want. The spec exists and precedes the code. That is what matters today.
-
-As the participant builds, prompt them once with this question: "As you build, notice where natural seams are forming — where would this split naturally into independent pieces that could run in parallel? Keep that question in mind. You'll be designing exactly that structure tomorrow."
-
-> **Coaching note:** If the participant is still defining the spec after 10 minutes, cut the discussion short and make a decision for them. A committed imperfect spec is better than a perfect uncommitted one. Once the spec is committed, step back from coaching. Let the participant build however they want to. Day 2 will introduce a better way.
+Seed knowledge base (first time only):
+```bash
+py seed_sig.py     # loads 615 entries from Okta SIG Core 2024
+```
 
 ---
 
-## What good looks like
+## Project context
 
-A good Day 1 output in a 15-minute sprint:
+**NaughtRFP** is an AI-powered RFP responder built for Okta Pre-Sales SEs. Hackathon POC — week of 2026-07-06. Theme: Agentic AI.
 
-- **`docs/solution.md` committed** — a clear, concise statement of what is being built, for whom, and what the demo shows. Short is fine. Clarity is everything.
-- **`docs/prd.md` committed** — a formal PRD with user stories, implementation decisions, and scope boundaries. Produced by `/to-prd` from the conversation.
-- **Both committed before any code is written** — the git sequence matters. Spec first, then build.
-- **An explicit identity/auth connection** — not retrofitted. Present in both documents.
-- **A demo scenario defined** — the participant knows exactly what they are building toward.
+**Owner:** Claude Leroux, Okta Solutions Engineer, Canada Public Sector  
+**LiteLLM proxy:** `https://llm.atko.ai` (Okta's internal LLM gateway)  
+**Models:** `claude-sonnet-4-6` (reasoning/tool-use agents) · `claude-haiku-4-5` (lightweight extraction agents)
 
 ---
 
-## What is being evaluated
+## Key files
 
-- **Evidence that the spec preceded the code** — the git commit sequence is readable. A spec commit followed by code commits is good. Code commits with no preceding spec commit is a red flag.
-- **Quality and clarity of the spec** — is it specific, internally consistent, and complete enough to guide a build?
-- **How well the build reflects the spec** — does what gets built match what was specced?
-- **Prompt quality** — how well the participant interrogated their own idea, how they directed the conversation, how they iterated
-
----
-
-## Coaching prompts to use throughout the day
-
-Use these when the participant drifts from the spec workflow:
-
-- "Before we write any code — are both docs committed? Let's make sure that's in git first."
-- "What would you show a business user or end user in 3 minutes to prove this works? Is that captured in the demo scenario?"
-- "Where does auth or identity fit in this? If it's not obvious, find the angle now — it can't be retrofitted."
-- "What are you explicitly NOT building? Scope boundaries matter — make sure they're in the spec."
-
----
-
-## Critical reminder
-
-**The spec must be committed before any meaningful code is written.** This is not a style preference — it is an evaluation criterion. The Agent as Judge reads git history. The commit sequence is evidence of how the work was done.
-
-Tell the participant: "Commit the spec first. Then we build."
+| File | Purpose |
+|---|---|
+| `app.py` | Flask backend — all routes, SSE streaming, Okta auth stubs |
+| `agents.py` | All 9 agent classes, tools, web search, KB search |
+| `db.py` | SQLite wrapper — thread-local connections, FTS5 |
+| `export_handler.py` | CSV/XLSX export with colour-coded response codes |
+| `seed_kb.py` | 25 hand-crafted Okta baseline Q&A pairs |
+| `seed_sig.py` | Loads `Okta_SIG_Core.xlsm` → KB (615 entries) |
+| `sample_rfp.csv` | 34-requirement IGA RFP for testing |
+| `templates/index.html` | Single-page app shell |
+| `static/style.css` | Okta dark navy theme with 3D depth system |
+| `static/app.js` | Full SPA — routing, agent feed, KB, demo prep |
+| `.env.example` | Template for judge/local credentials — copy to `.env` |
+| `SESSION_LOG.md` | Full build session log — decisions, problems, prompts |
+| `docs/solution.md` | Problem statement and scope (hackathon Day 1 spec) |
+| `docs/prd.md` | Full PRD with 34 user stories (hackathon Day 1 spec) |
+| `docs/multiAgentDesign.md` | Multi-agent architecture design document (817 lines) |
 
 ---
 
-## End-of-day wrap-up
+## Architecture rules
 
-When the participant is done for the day, confirm that both `docs/solution.md` and `docs/prd.md` are committed before any code is written — this is an evaluation criterion and the git commit sequence is evidence. Then run `/wrap-day`.
+- **Always use `py`** not `python` to invoke Python
+- **Always update `README.md`** after any non-trivial feature change (agents, routes, performance, new UI screens)
+- **Work in small chunks** with a visible task list (`TaskCreate` / `TaskUpdate`)
+- **SQLite is thread-safe** — the DB uses thread-local connections with WAL mode. Don't add `check_same_thread=False` workarounds.
+- **CSS depth tokens** are defined in `:root` — use `var(--depth-raised)`, `var(--depth-inset)`, `var(--card-grad)` etc. Don't hardcode shadow values.
+- **Model constants** are `_MODEL` and `_MODEL_FAST` in `agents.py` — never hardcode model strings elsewhere.
+  - `_MODEL = "claude-sonnet-4-6"` — Analysis Agent, Answer Agent, Demo Prep Agent, AI KB Search
+  - `_MODEL_FAST = "claude-haiku-4-5"` — Customer Agent, Parser Agent, Web Summarizer
 
-> **Critical:** The Agent as Judge runs overnight after Day 1. `/wrap-day` must be run before the session ends. The judge evaluates what is committed and tagged — anything not pushed is invisible to it. Do not let the participant skip this step.
+## SSL / Corporate proxy
+Okta's corporate proxy does SSL inspection. All `httpx` clients must use `verify=False`. The `_make_client()` helper in `agents.py` handles this for Claude API calls. For direct `httpx` calls elsewhere, always pass `verify=False`.
 
-The wrap-day skill handles the full sequence automatically: it generates the handoff document (saved to `.hackathon/day1-summary.md`) if one does not already exist, generates the PRD if no spec exists yet, commits all work, tags the Day 1 submission, and pushes.
+## Agent pipeline (9 agents)
+```
+Upload → Customer Agent (Haiku) → Parser Agent (Haiku) → Analysis Agent (Sonnet)
+       → Research Agent (local — FTS5 + httpx, no LLM)
+       → Answer Agent (Sonnet, 6 parallel workers, agentic tool loop)
+       → Scoring Agent (local — aggregation) → Review Agent (local — rule-based)
+       ↓ on demand:
+       KB Ingestion Agent   (local — FTS5 dedup, → Add to KB button)
+       Demo Prep Agent      (Sonnet, → 🎭 Demo Prep button)
+```
+
+## Okta Authentication (plumbing — disabled by default)
+- Routes: `/auth/login`, `/auth/callback`, `/auth/logout` in `app.py`
+- Full OIDC Authorization Code + PKCE flow
+- Controlled by `okta_auth_enabled` setting (default: `false`)
+- Configure via Settings UI: Okta Domain, Client ID, Redirect URI
+- **Leave disabled** for judge/demo access — no Okta account required
+
+## Environment / .env bootstrap
+- Copy `.env.example` to `.env` and fill in `LITELLM_API_KEY`
+- App reads `.env` on startup via `_load_dotenv()` + `_env_bootstrap()` in `app.py`
+- Supported vars: `LITELLM_API_KEY`, `LITELLM_BASE_URL`, `OKTA_DOMAIN`, `OKTA_CLIENT_ID`, `OKTA_REDIRECT_URI`
+- `.env` is gitignored — never commit it
+
+## Database
+- Path: `naughtrfp.db` (gitignored)
+- Thread-local connections via `db._get_con()`
+- FTS5 on `knowledge_base` — use `db.search_knowledge_base(query)` which runs multi-strategy search (phrase → prefix-AND → prefix-OR → LIKE fallback)
+- After changing question statuses, call `db.sync_rfp_counts(rfp_id)` to update header scores
+
+## Multi-document RFPs
+- `rfp_documents` table: each uploaded file is a document record under one RFP project
+- `questions.document_id` links questions to their source document
+- `db.sync_rfp_counts(rfp_id)` aggregates counts across all documents
+- Upload endpoint accepts `files` (plural) form field for batch upload
+
+## LiteLLM-specific notes
+- Model names on this proxy: `claude-sonnet-4-6`, `claude-haiku-4-5` (no date suffixes)
+- OpenAI endpoint (`/v1/chat/completions`) has team model restrictions — use Anthropic endpoint (`/v1/messages`) via the `anthropic` SDK
+- Key format: `sk-...` (LiteLLM virtual key, not a raw Anthropic key)
+
+## Gitignore reminder
+These are already in `.gitignore` — never commit them:
+- `naughtrfp.db`
+- `uploads/`
+- `exports/`
+- `__pycache__/`
+- `.env`
