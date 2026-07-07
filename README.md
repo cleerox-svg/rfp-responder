@@ -6,6 +6,35 @@ NaughtRFP is an autonomous, multi-agent platform that transforms how Solutions E
 
 ---
 
+## For Judges — Quick Start
+
+**Requirements:** Python 3.11+, access to `llm.atko.ai` (Okta internal LiteLLM proxy)
+
+```bash
+# 1. Install dependencies
+py -m pip install flask anthropic openpyxl
+
+# 2. Configure credentials — copy .env.example to .env and fill in your key
+copy .env.example .env
+# Edit .env: set LITELLM_API_KEY=sk-your-key-here
+# LITELLM_BASE_URL is already set to https://llm.atko.ai
+
+# 3. Start the app
+py app.py
+
+# 4. Open http://localhost:5000 in your browser
+```
+
+**No UI configuration needed** — the app reads `.env` on startup and bootstraps all settings automatically. Go straight to uploading an RFP.
+
+**Test RFP included:** `sample_rfp.csv` — a 34-requirement Identity Governance RFP ready to process. Upload it from the Dashboard to see all 9 agents run.
+
+**Authentication note:** Okta OIDC authentication is implemented but **disabled by default** so you can access the app without an Okta account. The auth plumbing (login, callback, logout routes + Settings UI) is visible in `app.py` and the Settings page. Enable it via Settings → Okta Authentication if you want to test the auth flow.
+
+**Knowledge base:** The app ships with 25 baseline Okta Q&A entries. To load the full 615-entry Okta SIG Core 2024 seed (requires `Okta_SIG_Core.xlsm`), run `py seed_sig.py`. The baseline KB is sufficient to demo the agent pipeline.
+
+---
+
 ## Table of Contents
 
 1. [The Problem](#the-problem)

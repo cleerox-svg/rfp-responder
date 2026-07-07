@@ -29,6 +29,41 @@ os.makedirs("exports", exist_ok=True)
 db = Database("naughtrfp.db")
 db.init()
 
+# Bootstrap settings from environment variables so judges can configure via
+# .env without touching the UI. Environment values win over any previously
+# saved DB value, making the .env the single source of truth on first run.
+def _env_bootstrap():
+    _env_map = {
+        "LITELLM_API_KEY":   "anthropic_api_key",
+        "LITELLM_BASE_URL":  "litellm_base_url",
+        "OKTA_DOMAIN":       "okta_domain",
+        "OKTA_CLIENT_ID":    "okta_client_id",
+        "OKTA_REDIRECT_URI": "okta_redirect_uri",
+    }
+    for env_var, setting_key in _env_map.items():
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            db.set_setting(setting_key, val)
+
+# Load .env file if present (no external dependency — plain key=value parsing)
+def _load_dotenv():
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+
+_load_dotenv()
+_env_bootstrap()
+
 # Apply saved LiteLLM base URL on startup
 _saved_base_url = db.get_setting("litellm_base_url")
 if _saved_base_url:
