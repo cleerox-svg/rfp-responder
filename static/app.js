@@ -1286,9 +1286,10 @@ async function ingestToKB(rfpId) {
 const AGENTS_DATA = [
   {
     id: 'customer', icon: '🏢', name: 'Customer Agent', color: '#00B4C8',
+    model: 'claude-haiku-4-5', modelTier: 'fast',
     role: 'Customer & RFP Identification',
     description: 'Runs at the start of every pipeline. Reads the uploaded file content and uses Claude to extract the customer name, industry, RFP reference number, issuing department, scope summary, and estimated scale. Displayed in the RFP header and used to personalise agent prompts.',
-    tools: ['Claude claude-sonnet-4-6', 'openpyxl', 'csv'],
+    tools: ['Claude Haiku 4.5', 'openpyxl', 'csv'],
     inputs: ['Uploaded CSV or XLSX file', 'Filename'],
     outputs: ['customer_name', 'industry', 'rfp_number', 'scope_summary', 'estimated_scale'],
     interactions: [{ to: 'All downstream agents', via: 'Customer context injected into prompts' }],
@@ -1296,9 +1297,10 @@ const AGENTS_DATA = [
   },
   {
     id: 'parser', icon: '🗂', name: 'Parser Agent', color: '#007DC1',
+    model: 'claude-haiku-4-5', modelTier: 'fast',
     role: 'RFP Structure Detection',
     description: 'Intelligently detects which columns in a CSV or XLSX file contain requirements, categories, priorities, and vendor response fields — regardless of format variation between customers. Eliminates header rows and duplicate entries.',
-    tools: ['Claude claude-sonnet-4-6', 'openpyxl', 'csv'],
+    tools: ['Claude Haiku 4.5', 'openpyxl', 'csv'],
     inputs: ['CSV or XLSX file'],
     outputs: ['Structured requirement list', 'Column mapping'],
     interactions: [{ to: 'Analysis Agent', via: 'Passes extracted requirements' }],
@@ -1306,9 +1308,10 @@ const AGENTS_DATA = [
   },
   {
     id: 'analyzer', icon: '🔍', name: 'Analysis Agent', color: '#00A4E0',
+    model: 'claude-sonnet-4-6', modelTier: 'sonnet',
     role: 'Categorisation & Product Mapping',
     description: 'Processes all requirements in a single batched API call for speed. Maps each requirement to relevant Okta product areas (OIG, LCM, SSO, MFA, PAM, Workflows, AI) and assigns a preliminary risk score.',
-    tools: ['Claude claude-sonnet-4-6 (batch)'],
+    tools: ['Claude Sonnet 4.6 (batch)'],
     inputs: ['Extracted requirements'],
     outputs: ['Refined categories', 'Okta product mapping', 'Risk pre-scores'],
     interactions: [{ to: 'Answer Agent', via: 'Enriched questions with product context' }],
@@ -1316,9 +1319,10 @@ const AGENTS_DATA = [
   },
   {
     id: 'research', icon: '📚', name: 'Research Agent', color: '#9B6BFA',
+    model: 'No LLM — local only', modelTier: 'none',
     role: 'Knowledge Base & Web Retrieval',
     description: 'A tool-calling agent embedded inside the Answer Agent\'s agentic loop. Searches the 640+ entry knowledge base (Okta SIG Core 2024 + past RFP answers) using SQLite FTS5, and optionally fetches live data from trust.okta.com and docs.okta.com.',
-    tools: ['SQLite FTS5 (search_knowledge_base)', 'DuckDuckGo API', 'httpx (Okta page fetch)', 'Claude claude-sonnet-4-6'],
+    tools: ['SQLite FTS5 (search_knowledge_base)', 'DuckDuckGo API', 'httpx (Okta page fetch)'],
     inputs: ['Search query from Answer Agent'],
     outputs: ['Relevant KB entries', 'Live Okta web content (if enabled)'],
     interactions: [
@@ -1329,9 +1333,10 @@ const AGENTS_DATA = [
   },
   {
     id: 'answer', icon: '✍️', name: 'Answer Agent', color: '#00C58E',
+    model: 'claude-sonnet-4-6', modelTier: 'sonnet',
     role: 'Response Generation (Agentic Loop)',
-    description: 'The core agent. Runs a 4-iteration agentic loop with tool use. Searches the KB, optionally searches the web, and either flags a question for human review (confidence < 60%) or generates a professional vendor response with response code (F/P/C/NE/N), confidence score, and source citations. Runs in parallel across all requirements (4 workers).',
-    tools: ['Claude claude-sonnet-4-6', 'search_knowledge_base', 'search_web', 'flag_for_review'],
+    description: 'The core agent. Runs a 4-iteration agentic loop with tool use. Searches the KB, optionally searches the web, and either flags a question for human review (confidence < 60%) or generates a professional vendor response with response code (F/P/C/NE/N), confidence score, and source citations. Runs in parallel across all requirements (6 workers).',
+    tools: ['Claude Sonnet 4.6', 'search_knowledge_base', 'search_web', 'flag_for_review'],
     inputs: ['Requirement text', 'Category', 'Priority', 'Okta products', 'Customer context'],
     outputs: ['Vendor response', 'Response code F/P/C/NE/N', 'Confidence 0–1', 'Fit/risk scores', 'Source citations'],
     interactions: [
@@ -1343,6 +1348,7 @@ const AGENTS_DATA = [
   },
   {
     id: 'scoring', icon: '⭐', name: 'Scoring Agent', color: '#F5A623',
+    model: 'No LLM — aggregation', modelTier: 'none',
     role: 'Fit & Risk Score Aggregation',
     description: 'Aggregates per-question scores from the Answer Agent to produce overall RFP fit and risk scores shown on the dashboard card. Separates answered vs flagged counts.',
     tools: ['Statistical aggregation'],
@@ -1353,6 +1359,7 @@ const AGENTS_DATA = [
   },
   {
     id: 'review', icon: '✅', name: 'Review Agent', color: '#E03131',
+    model: 'No LLM — rule-based', modelTier: 'none',
     role: 'Quality Assurance',
     description: 'Final pass over all generated answers. Appends mandatory human-review warnings to any high-risk answers (risk_score ≥ 4) to ensure no sensitive commitments slip through. Warnings are displayed in the app but stripped from exports.',
     tools: ['Rule-based pattern matching'],
@@ -1363,6 +1370,7 @@ const AGENTS_DATA = [
   },
   {
     id: 'kb', icon: '🧠', name: 'KB Ingestion Agent', color: '#007DC1',
+    model: 'No LLM — local only', modelTier: 'none',
     role: 'Knowledge Base Builder',
     description: 'Ingests all answered questions from a completed RFP into the searchable knowledge base. Deduplicates using FTS5 search. Grows the shared answer library so every future RFP benefits from past responses. The KB currently holds 640+ entries from the Okta SIG Core 2024 and past RFPs.',
     tools: ['SQLite FTS5', 'Deduplication via search_knowledge_base'],
@@ -1373,9 +1381,10 @@ const AGENTS_DATA = [
   },
   {
     id: 'demo', icon: '🎭', name: 'Demo Prep Agent', color: '#F5A623',
+    model: 'claude-sonnet-4-6', modelTier: 'sonnet',
     role: 'Demo Planning & Script Generation',
     description: 'Activated after RFP processing. Reads all answered requirements grouped by category, priority, and Okta product area, then generates an ordered demo plan with sections, time estimates, demo steps, talking points, differentiators, and environment setup notes. Confirmed plans are stored in the Demo Library.',
-    tools: ['Claude claude-sonnet-4-6'],
+    tools: ['Claude Sonnet 4.6'],
     inputs: ['All answered RFP questions', 'Customer context', 'Optional: customer-provided demo format'],
     outputs: ['Ordered demo sections', 'Demo steps per section', 'Talking points', 'Differentiators', 'Prep notes', 'Estimated total time'],
     interactions: [
@@ -1401,16 +1410,21 @@ function renderAgents() {
     '<span class="pipeline-arrow" style="margin:0 12px">+</span>' +
     '<div class="pipeline-node" onclick="openAgentFlyout(\'Demo Prep Agent\')">Demo Prep Agent</div>';
 
-  grid.innerHTML = AGENTS_DATA.map(a => `
+  grid.innerHTML = AGENTS_DATA.map(a => {
+    const modelColor = a.modelTier === 'sonnet' ? 'var(--okta-blue)' : a.modelTier === 'fast' ? 'var(--green)' : 'var(--text-muted)';
+    const modelLabel = a.modelTier === 'sonnet' ? '⚡ Sonnet' : a.modelTier === 'fast' ? '🪶 Haiku' : '🔧 Local';
+    return `
     <div class="agent-demo-card" style="--agent-color:${a.color}" onclick="openAgentFlyout('${a.name}')">
       <span class="view-detail">Details →</span>
       <div class="agent-demo-icon" style="border-color:${a.color};color:${a.color}">${a.icon}</div>
       <div class="agent-demo-name">${a.name}</div>
       <div class="agent-demo-role">${a.role}</div>
+      <div style="font-size:.72rem;font-weight:600;color:${modelColor};margin:4px 0 8px;letter-spacing:.03em">${modelLabel}</div>
       <div class="agent-demo-tools">
         ${a.tools.map(t => `<span class="tool-chip">${esc(t)}</span>`).join('')}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function openAgentFlyout(agentName) {
@@ -1420,11 +1434,14 @@ function openAgentFlyout(agentName) {
   const flyout = document.getElementById('agent-flyout');
   const overlay = document.getElementById('flyout-overlay');
 
+  const modelColor = a.modelTier === 'sonnet' ? 'var(--okta-blue)' : a.modelTier === 'fast' ? 'var(--green)' : 'var(--text-muted)';
+  const modelLabel = a.modelTier === 'sonnet' ? '⚡ Sonnet' : a.modelTier === 'fast' ? '🪶 Haiku' : '🔧 Local / No LLM';
   flyout.innerHTML = `
     <button class="flyout-close" onclick="closeFlyout()">✕</button>
     <div class="flyout-icon" style="border-color:${a.color};color:${a.color}">${a.icon}</div>
     <div class="flyout-name">${a.name}</div>
     <div class="flyout-role">${a.role}</div>
+    <div style="font-size:.78rem;font-weight:600;color:${modelColor};margin:4px 0 14px;letter-spacing:.04em">${modelLabel} &nbsp;·&nbsp; <span style="font-weight:400;color:var(--text-muted)">${esc(a.model)}</span></div>
 
     <div class="flyout-section">
       <div class="flyout-section-title">What it does</div>

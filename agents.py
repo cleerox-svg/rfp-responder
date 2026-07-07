@@ -16,8 +16,11 @@ _WEB_SEARCH_ENABLED: bool = True
 _PAGE_CACHE: dict[str, tuple[float, str]] = {}
 _PAGE_CACHE_TTL: int = 3600
 
-# Single place to change the model and concurrency
-_MODEL = "claude-sonnet-4-6"
+# Model assignments — change here to update all agents at once
+# Sonnet: heavy reasoning, tool use, multi-step decisions
+# Haiku:  fast extraction, structured output, pattern matching
+_MODEL      = "claude-sonnet-4-6"   # Analysis, Answer, Demo Prep, AI KB Search
+_MODEL_FAST = "claude-haiku-4-5"    # Customer, Parser, Web Summarizer
 _ANSWER_WORKERS = 6
 
 
@@ -258,7 +261,7 @@ def _do_web_search(query: str, api_key: str, base_url: str | None) -> str:
     try:
         client = _make_client(api_key)
         resp = client.messages.create(
-            model=_MODEL,
+            model=_MODEL_FAST,
             max_tokens=400,
             system="You extract key facts from web content to help answer enterprise RFP questions about Okta.",
             messages=[{
@@ -591,7 +594,7 @@ class AgentPipeline:
         )
 
         resp = self.client.messages.create(
-            model=_MODEL,
+            model=_MODEL_FAST,
             max_tokens=512,
             system="You analyze RFP spreadsheet structures. Respond with valid JSON only, no markdown.",
             messages=[{                "role": "user",
@@ -1105,7 +1108,7 @@ def detect_customer(api_key, filepath, rfp_filename):
     sample = _sample_file_text(filepath)
 
     resp = client.messages.create(
-        model=_MODEL,
+        model=_MODEL_FAST,
         max_tokens=512,
         system="You are an expert at reading RFP documents. Respond with valid JSON only, no markdown.",
         messages=[{
