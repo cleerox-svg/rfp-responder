@@ -4,3 +4,12 @@ docs/handover.txt
 docs/solutionDesign.md
 .claude/settings.local.json
 .env
+
+# NaughtRFP runtime artifacts
+*.db
+*.db-shm
+*.db-wal
+uploads/
+exports/
+__pycache__/
+*.pyc

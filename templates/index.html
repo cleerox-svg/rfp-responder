@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NaughtRFP — Okta RFP Responder</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- ── Sidebar ───────────────────────────────────────────────────────────── -->
+<nav id="sidebar">
+
+  <div class="sidebar-header">
+    <div class="sidebar-logo">
+      <!-- NaughtRFP logo mark: circuit N — four nodes + traces representing the agent pipeline -->
+      <svg class="logo-svg" width="36" height="36" viewBox="0 0 36 36" fill="none"
+           xmlns="http://www.w3.org/2000/svg" aria-label="NaughtRFP">
+        <defs>
+          <linearGradient id="nr-bg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+            <stop offset="0%"   stop-color="#1fb0ee"/>
+            <stop offset="100%" stop-color="#0042a0"/>
+          </linearGradient>
+          <linearGradient id="nr-shine" x1="0" y1="0" x2="0" y2="36" gradientUnits="userSpaceOnUse">
+            <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.18"/>
+            <stop offset="55%"  stop-color="#ffffff" stop-opacity="0"/>
+          </linearGradient>
+          <filter id="nr-glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- Background rounded square -->
+        <rect width="36" height="36" rx="9" fill="url(#nr-bg)"/>
+        <!-- Shine layer -->
+        <rect width="36" height="36" rx="9" fill="url(#nr-shine)"/>
+        <!-- Inner border highlight -->
+        <rect x="0.8" y="0.8" width="34.4" height="34.4" rx="8.2"
+              stroke="white" stroke-opacity="0.22" stroke-width="1.2" fill="none"/>
+
+        <!-- Circuit traces (the N) -->
+        <g filter="url(#nr-glow)">
+          <!-- Left vertical -->
+          <line x1="11.5" y1="11.5" x2="11.5" y2="24.5"
+                stroke="white" stroke-width="2" stroke-linecap="round"/>
+          <!-- Diagonal: top-left → bottom-right -->
+          <line x1="11.5" y1="11.5" x2="24.5" y2="24.5"
+                stroke="white" stroke-width="2" stroke-linecap="round"/>
+          <!-- Right vertical -->
+          <line x1="24.5" y1="11.5" x2="24.5" y2="24.5"
+                stroke="white" stroke-width="2" stroke-linecap="round"/>
+        </g>
+
+        <!-- Node dots — the four connection points -->
+        <circle cx="11.5" cy="11.5" r="2.8" fill="white"/>
+        <circle cx="24.5" cy="11.5" r="2.8" fill="white"/>
+        <circle cx="11.5" cy="24.5" r="2.8" fill="white"/>
+        <circle cx="24.5" cy="24.5" r="2.8" fill="white"/>
+
+        <!-- Centre crossover dot — the data-in-transit indicator -->
+        <circle cx="18" cy="18" r="1.8" fill="white" opacity="0.55"/>
+      </svg>
+      <span class="sidebar-wordmark">NaughtRFP</span>
+    </div>
+  </div>
+
+  <div class="sidebar-nav">
+    <button class="sidebar-btn active" data-page="home">
+      <span class="sb-icon">🏠</span>
+      <span class="sb-label">Dashboard</span>
+    </button>
+    <button class="sidebar-btn" data-page="kb">
+      <span class="sb-icon">📚</span>
+      <span class="sb-label">Knowledge Base</span>
+    </button>
+    <button class="sidebar-btn" data-page="agents">
+      <span class="sb-icon">🤖</span>
+      <span class="sb-label">Agents</span>
+    </button>
+    <button class="sidebar-btn" data-page="demos">
+      <span class="sb-icon">🎭</span>
+      <span class="sb-label">Demo Library</span>
+    </button>
+    <button class="sidebar-btn" data-page="settings">
+      <span class="sb-icon">⚙️</span>
+      <span class="sb-label">Settings</span>
+    </button>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="api-status sidebar-api">
+      <div class="api-dot"></div>
+      <span class="sb-label" id="api-status-label">API</span>
+    </div>
+    <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Collapse sidebar">
+      <span class="toggle-icon">◀</span>
+    </button>
+  </div>
+
+</nav>
+
+<!-- ── App ──────────────────────────────────────────────────────────────── -->
+<div id="app">
+
+  <!-- Dashboard -->
+  <div class="page active" id="page-home">
+    <div class="page-header">
+      <div>
+        <div class="page-title">RFP Dashboard</div>
+        <div class="page-sub">Upload and process customer RFPs with AI agents</div>
+      </div>
+    </div>
+
+    <!-- Upload Zone -->
+    <div class="upload-zone" id="upload-zone" style="margin-bottom:28px">
+      <input type="file" id="upload-input" accept=".csv,.xlsx,.xls" multiple />
+      <div class="upload-icon">📄</div>
+      <div class="upload-text" id="upload-text">Drop one or more RFP files or <strong style="color:var(--okta-blue-lt)">click to browse</strong></div>
+      <div class="upload-hint">CSV and XLSX · Multiple files become one RFP project · Agents process each document</div>
+      <div id="upload-file-list" style="display:none;margin-top:14px;text-align:left;max-width:480px;margin-inline:auto"></div>
+    </div>
+
+    <!-- RFP Grid -->
+    <div class="card-grid" id="rfp-grid">
+      <div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">⏳</div>
+        <div>Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RFP Detail -->
+  <div class="page" id="page-rfp-detail"></div>
+
+  <!-- Knowledge Base -->
+  <div class="page" id="page-kb">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Knowledge Base</div>
+        <div id="kb-stats" class="page-sub">Loading…</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="seedKB()" title="Load Okta baseline Q&A library">⊕ Seed Okta Knowledge</button>
+      </div>
+    </div>
+
+    <div class="search-bar">
+      <input
+        type="text"
+        class="search-input"
+        id="kb-search-input"
+        placeholder="Search past RFP answers… (press Enter)"
+      />
+      <label style="display:flex;align-items:center;gap:6px;font-size:.8125rem;color:var(--text-secondary);cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="ai-search-toggle" style="accent-color:var(--okta-blue)" />
+        ⚡ AI Search
+      </label>
+      <button class="btn btn-primary" onclick="loadKBResults(document.getElementById('kb-search-input').value, document.getElementById('ai-search-toggle').checked)">Search</button>
+    </div>
+
+    <div id="kb-list">
+      <div style="color:var(--text-muted);padding:20px">Loading knowledge base…</div>
+    </div>
+  </div>
+
+  <!-- Agents -->
+  <div class="page" id="page-agents">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Agent Architecture</div>
+        <div class="page-sub">7 specialized AI agents collaborating to process RFPs autonomously</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px;font-size:.75rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Pipeline Flow</div>
+    <div class="agents-pipeline" id="agents-pipeline"></div>
+
+    <div style="margin:28px 0 12px;font-size:.75rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Agent Details — Click any card</div>
+    <div class="agent-cards-grid" id="agents-grid"></div>
+  </div>
+
+  <!-- Demo Library -->
+  <div class="page" id="page-demos">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Demo Library</div>
+        <div class="page-sub">Confirmed demo plans — ready to use</div>
+      </div>
+    </div>
+    <div class="card-grid" id="demos-grid">
+      <div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">⏳</div><div>Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Demo Detail (full plan view) -->
+  <div class="page" id="page-demo-detail"></div>
+
+  <!-- Settings -->
+  <div class="page" id="page-settings">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Settings</div>
+        <div class="page-sub">Configure your API key and integrations</div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-group">
+        <label class="settings-label">Anthropic API Key</label>
+        <div id="api-key-indicator" style="font-size:.8rem;margin-bottom:8px;color:var(--red)">No API key configured</div>
+        <input
+          type="password"
+          class="text-input"
+          id="api-key-input"
+          placeholder="sk-ant-…  (enter to update)"
+          autocomplete="off"
+        />
+        <div class="settings-hint">Your key is stored locally in the SQLite database — never sent anywhere except Anthropic's API.</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="settings-group">
+        <label class="settings-label">LiteLLM Proxy URL</label>
+        <input
+          type="text"
+          class="text-input"
+          id="litellm-base-url"
+          placeholder="https://llm.atko.ai"
+        />
+        <div class="settings-hint">Your Okta LiteLLM proxy. Leave blank to call Anthropic directly.</div>
+      </div>
+
+      <div class="settings-group">
+        <label class="settings-label" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="web-search-toggle" style="accent-color:var(--okta-blue);width:16px;height:16px" />
+          Enable Web Search during processing
+        </label>
+        <div class="settings-hint">When enabled, agents fetch live data from trust.okta.com and docs.okta.com. Disable for faster processing — KB has 640+ entries from the SIG.</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="settings-group">
+        <label class="settings-label">Google Drive Folder (optional)</label>
+        <input
+          type="text"
+          class="text-input"
+          id="drive-folder-id"
+          placeholder="Google Drive folder ID"
+          style="margin-bottom:8px"
+        />
+        <input
+          type="text"
+          class="text-input"
+          id="drive-folder-name"
+          placeholder="Folder display name"
+        />
+        <div class="settings-hint">Used to identify your RFP source folder in Drive. Manual import not yet implemented — use file upload for now.</div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn btn-secondary" onclick="testConnection()">⚡ Test Connection</button>
+        <span id="connection-result" style="font-size:.8rem"></span>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="settings-group">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <label class="settings-label" style="margin:0">Token Usage</label>
+          <button class="btn btn-secondary btn-sm" onclick="loadUsage()">↻ Refresh</button>
+        </div>
+        <div id="usage-panel">
+          <div style="color:var(--text-muted);font-size:.8rem">Click Refresh to load usage stats</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Flyout ─────────────────────────────────────────────────────────────── -->
+<div class="flyout-overlay" id="flyout-overlay"></div>
+<div class="flyout" id="agent-flyout"></div>
+
+<!-- ── Toasts ────────────────────────────────────────────────────────────── -->
+<div class="toast-container" id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
