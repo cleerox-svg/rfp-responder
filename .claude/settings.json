@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p .hackathon/logs && jq -r '\"[\" + (now | strftime(\"%Y-%m-%d %H:%M:%S\")) + \"] \" + .prompt' >> .hackathon/logs/prompts.log 2>/dev/null || echo \"[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: prompt logging failed — check that jq is installed (brew install jq / sudo apt install jq). Prompt was not logged.\" >> .hackathon/logs/error.log"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git status)",
+      "Bash(git log*)",
+      "Bash(git tag*)",
+      "Bash(git diff*)",
+      "Bash(mkdir -p .hackathon)",
+      "Bash(mkdir -p .hackathon/*)",
+      "Bash(bash .hackathon/scripts/*)",
+      "Write(docs/*)",
+      "Write(.hackathon/logs/*)",
+      "Write(.hackathon/docs/*)",
+      "Read(docs/*)",
+      "Write(docs/*)",
+      "Read(.claude/agents/*)",
+      "Write(.claude/agents/*)",                  
+      "Read(.hackathon/logs/*)",
+      "Read(.hackathon/docs/*)"      
+    ]
+  },
+  "env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }
+}

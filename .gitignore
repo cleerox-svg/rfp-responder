@@ -1,0 +1,6 @@
+.hackathon/logs/prompts.log
+.hackathon/logs/error.log
+docs/handover.txt
+docs/solutionDesign.md
+.claude/settings.local.json
+.env
