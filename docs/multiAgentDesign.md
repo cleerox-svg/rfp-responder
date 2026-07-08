@@ -181,6 +181,39 @@ PM produces task list
 
 ---
 
+## Context Window Strategy
+
+The context window is a resource, not a given. Treating it as infinite is an architectural mistake — as context grows, attention degrades, early instructions get deprioritised, and the model spends tokens re-reading information it already processed. Every agent boundary in this design is a deliberate context window decision.
+
+### What each agent knows — and why
+
+| Agent | Context held | Deliberately excluded | Reason for exclusion |
+|---|---|---|---|
+| Product Owner | PRD, 34 user stories, demo scenario, scope decisions | All code, schema, model names | Implementation detail pollutes product reasoning — the PO starts optimising for what's easy to build rather than what the user needs |
+| Architect | System shape, API contracts, pipeline diagram, assessment reports | UI component tree, individual route implementations, user stories | Architectural decisions at route/component level belong to implementation agents; user stories belong to PO |
+| Project Manager | Agent roster, backlog, dependency map, improvement plan | Implementation details of any layer | PM reasons about sequencing — holding implementation detail creates confusion between "what order" and "how" |
+| Backend Engineer | `app.py`, `export_handler.py`, API contracts | `agents.py`, `db.py` internals, frontend, auth integration specifics | Flask routes and AI pipeline have different failure modes; mixing creates cross-contamination |
+| Frontend Engineer | `app.js`, `index.html`, `style.css`, API contracts (response shapes only) | Backend implementation, DB schema, agent pipeline, LiteLLM config | Frontend talks to the API surface — it doesn't need to know what's behind it; knowing would encourage wrong coupling |
+| Data Engineer | `db.py`, schema, FTS5 constraints, thread-safety rules | Routes, frontend, agent prompts | SQLite + FTS5 + WAL + thread-local connections has non-obvious constraints best reasoned about in isolation |
+| AI Pipeline Engineer | `agents.py`, tool definitions, model constants, KB search interface | Flask routes, frontend, auth config, full DB schema | The pipeline is the most complex, highest-stakes component — mixing with backend or data concerns causes the most expensive errors |
+| Integration Specialist | Auth routes, `.env.example`, LiteLLM proxy specifics, MCP tool surfaces | Business logic, DB schema, frontend components, agent pipeline internals | Each integration has its own auth model and SDK patterns; a generalist re-learns these every time whereas the specialist holds them permanently |
+
+### The cost of getting context wrong
+
+**Too much context** — the agent starts making trade-offs that serve a different layer. A Backend Engineer that also knows the full agent pipeline will suggest Flask route changes that optimise for how `agents.py` currently works, rather than what the API contract should be. It starts coding defensively around the pipeline instead of designing the correct interface.
+
+**Too little context** — the agent makes decisions that conflict with constraints it was never told about. A Data Engineer that doesn't know the FTS5 multi-strategy search fallback pattern will "simplify" the KB queries in a way that breaks acronym matching for single-word queries like "MFA" or "DR".
+
+**The right amount** — each agent in this design was given the minimum context needed to produce a correct output and make correct decisions at its own boundary. The interfaces (what the agent receives and what it produces) were designed so that agents don't need to look past their own layer to do their job.
+
+### Why this maps to the product's own architecture
+
+NaughtRFP itself uses exactly this principle — the 9 product agents (Customer, Parser, Analysis, Research, Answer, Scoring, Review, KB Ingestion, Demo Prep) each receive only the context they need for their specific job. The Research Agent pre-fetches KB context so the Answer Agent doesn't have to make a tool call to discover what's already known. The Analysis Agent runs before the Answer Agent so the Answer Agent already has Okta product tags and risk scores injected into its first message. Context is prepared, scoped, and handed forward — never accumulated and grown.
+
+The Claude Code agent team follows the same design. The main session is the orchestrator — it holds the current task state and agent outputs, not the implementation details. Each agent arrives at its task with a clean, focused context window.
+
+---
+
 ## Design Decisions
 
 **Why an AI Pipeline Engineer as a separate discipline:** `agents.py` is ~1,100 lines containing the most complex and highest-stakes logic in the system. Giving this its own agent means it always arrives with full, uncontaminated focus on the pipeline.
