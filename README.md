@@ -35,6 +35,18 @@ py app.py
 
 ---
 
+## Agent Team (Claude Code Sub-Agents)
+
+This project uses a two-tier team of Claude Code sub-agents to manage the build. See [`docs/multiAgentDesign.md`](docs/multiAgentDesign.md) for the full design rationale and [`.claude/agents/`](.claude/agents/) for all agent definitions.
+
+**Tier 1 — Strategic:** Product Owner · Architect · Project Manager
+
+**Tier 2 — Implementation:** Backend Engineer · Frontend Engineer · Data Engineer · AI Pipeline Engineer · Integration Specialist
+
+**First task sequence:** Spawn all 5 implementation agents in parallel for the assessment wave → Architect synthesizes → PM sequences → parallel implementation waves.
+
+---
+
 ## Table of Contents
 
 1. [The Problem](#the-problem)
