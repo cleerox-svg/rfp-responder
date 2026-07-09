@@ -12,7 +12,7 @@ def export_rfp(filepath, questions, rfp_id):
 
     if ext == "csv":
         return _export_csv(filepath, questions, rfp_id)
-    elif ext in ("xlsx", "xls"):
+    elif ext in ("xlsx", "xls", "xlsm"):
         return _export_xlsx(filepath, questions, rfp_id)
     elif ext == "docx":
         return _export_docx(filepath, questions, rfp_id)
@@ -30,78 +30,81 @@ def _build_lookup(questions):
 
 
 def _export_xlsx(filepath, questions, rfp_id):
-    wb = openpyxl.load_workbook(filepath)
-    ws = wb.active
-
-    # Locate header row (first row with content)
-    header_row_idx = None
-    headers = []
-    for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        if any(c for c in row if c is not None):
-            header_row_idx = i
-            headers = [str(c).strip().lower() if c is not None else "" for c in row]
-            break
-
-    if header_row_idx is None:
-        raise ValueError("Could not find header row")
-
-    # Detect relevant column indices (1-based)
-    req_col = resp_col = comment_col = None
-    for j, h in enumerate(headers):
-        if any(k in h for k in ("requirement", "criteria", "question", "description")):
-            if req_col is None:
-                req_col = j + 1
-        if any(k in h for k in ("vendor response", "response required", "vendor resp")):
-            resp_col = j + 1
-        if any(k in h for k in ("comment", "assumption", "notes", "vendor comment")):
-            comment_col = j + 1
-
-    # Fallback column positions
-    max_col = ws.max_column
-    if resp_col is None:
-        resp_col = max_col - 1 if max_col > 2 else max_col
-    if comment_col is None:
-        comment_col = max_col
+    ext = filepath.rsplit(".", 1)[-1].lower()
+    # keep_vba=True preserves macros in .xlsm round-trip
+    wb = openpyxl.load_workbook(filepath, keep_vba=(ext == "xlsm"))
 
     lookup = _build_lookup(questions)
-
     green_fill = PatternFill(start_color="00BF6F", end_color="00BF6F", fill_type="solid")
     amber_fill = PatternFill(start_color="F5A623", end_color="F5A623", fill_type="solid")
+    total_filled = 0
 
-    filled = 0
-    for row_num in range(header_row_idx + 1, ws.max_row + 1):
-        if req_col is None:
-            break
-        cell_val = ws.cell(row=row_num, column=req_col).value
-        if not cell_val:
+    # Process every sheet that has answerable content
+    for ws in wb.worksheets:
+        # Locate header row (first row with content)
+        header_row_idx = None
+        headers = []
+        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            if any(c for c in row if c is not None):
+                header_row_idx = i
+                headers = [str(c).strip().lower() if c is not None else "" for c in row]
+                break
+
+        if header_row_idx is None:
             continue
-        key = str(cell_val)[:120].lower().strip()
-        if key not in lookup:
-            continue
 
-        q = lookup[key]
-        rc = q.get("response_code", "")
-        answer = q.get("answer", "")
-        # Strip internal review notes from export
-        answer = answer.split("\n\n⚠")[0].strip()
+        # Detect relevant columns
+        req_col = resp_col = comment_col = None
+        for j, h in enumerate(headers):
+            if any(k in h for k in ("requirement", "criteria", "question", "description")):
+                if req_col is None:
+                    req_col = j + 1
+            if any(k in h for k in ("vendor response", "response required", "vendor resp")):
+                resp_col = j + 1
+            if any(k in h for k in ("comment", "assumption", "notes", "vendor comment")):
+                comment_col = j + 1
 
-        resp_cell = ws.cell(row=row_num, column=resp_col)
-        resp_cell.value = rc
-        resp_cell.font = Font(bold=True)
-        resp_cell.alignment = Alignment(horizontal="center")
-        if rc == "F":
-            resp_cell.fill = green_fill
-        elif rc in ("P", "C"):
-            resp_cell.fill = amber_fill
+        max_col = ws.max_column
+        if resp_col is None:
+            resp_col = max_col - 1 if max_col > 2 else max_col
+        if comment_col is None:
+            comment_col = max_col
 
-        comment_cell = ws.cell(row=row_num, column=comment_col)
-        comment_cell.value = answer
-        comment_cell.alignment = Alignment(wrap_text=True, vertical="top")
-        filled += 1
+        for row_num in range(header_row_idx + 1, ws.max_row + 1):
+            if req_col is None:
+                break
+            cell_val = ws.cell(row=row_num, column=req_col).value
+            if not cell_val:
+                continue
+            key = str(cell_val)[:120].lower().strip()
+            if key not in lookup:
+                continue
 
-    export_path = os.path.join("exports", f"rfp_{rfp_id}_naughtrfp_export.xlsx")
+            q = lookup[key]
+            rc     = q.get("response_code", "")
+            answer = q.get("answer", "").split("\n\n⚠")[0].strip()
+
+            resp_cell = ws.cell(row=row_num, column=resp_col)
+            resp_cell.value = rc
+            resp_cell.font = Font(bold=True)
+            resp_cell.alignment = Alignment(horizontal="center")
+            if rc == "F":
+                resp_cell.fill = green_fill
+            elif rc in ("P", "C"):
+                resp_cell.fill = amber_fill
+
+            comment_cell = ws.cell(row=row_num, column=comment_col)
+            comment_cell.value = answer
+            comment_cell.alignment = Alignment(wrap_text=True, vertical="top")
+            total_filled += 1
+
+    # Preserve original extension so .xlsm stays .xlsm (macros intact)
+    out_ext = ext if ext in ("xlsm",) else "xlsx"
+    export_path = os.path.join("exports", f"rfp_{rfp_id}_naughtrfp_export.{out_ext}")
     wb.save(export_path)
     return export_path
+
+
 
 
 def _export_csv(filepath, questions, rfp_id):

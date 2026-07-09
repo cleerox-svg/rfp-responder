@@ -74,7 +74,7 @@ if _saved_base_url:
 
 # .doc (legacy binary) is intentionally excluded — it requires antiword/LibreOffice.
 # Only .docx (Office Open XML) is supported via python-docx.
-ALLOWED = {"csv", "xlsx", "xls", "docx"}
+ALLOWED = {"csv", "xlsx", "xls", "xlsm", "docx"}
 
 RISKY_KEYWORDS = [
     "sla", "uptime", "99.9", "99.99", "penalty", "indemnif", "liability",
@@ -129,17 +129,20 @@ def quick_scan(filepath):
         if ext == "csv":
             with open(filepath, newline="", encoding="utf-8-sig") as f:
                 rows = [dict(r) for r in csv.DictReader(f)]
-        elif ext in ("xlsx", "xls"):
+        elif ext in ("xlsx", "xls", "xlsm"):
             wb = openpyxl.load_workbook(filepath, data_only=True)
-            ws = wb.active
-            headers = None
-            for row in ws.iter_rows(values_only=True):
-                if not any(c for c in row if c is not None):
+            # Scan all sheets (multi-tab support)
+            for ws in wb.worksheets:
+                if ws.max_row < 2:
                     continue
-                if headers is None:
-                    headers = [str(c).strip() if c else f"col_{i}" for i, c in enumerate(row)]
-                else:
-                    rows.append({headers[i]: row[i] for i in range(min(len(headers), len(row)))})
+                headers = None
+                for row in ws.iter_rows(values_only=True):
+                    if not any(c for c in row if c is not None):
+                        continue
+                    if headers is None:
+                        headers = [str(c).strip() if c else f"col_{i}" for i, c in enumerate(row)]
+                    else:
+                        rows.append({headers[i]: row[i] for i in range(min(len(headers), len(row)))})
         elif ext == "docx":
             # Build synthetic row dicts from text blocks for uniform downstream handling
             blocks = _extract_docx_text_blocks(filepath)

@@ -730,28 +730,80 @@ class AgentPipeline:
 
     # ── Parser Agent ──────────────────────────────────────────────────────────
 
+    # Sheet names that are almost certainly navigation/cover sheets — skip them
+    _NAV_SHEET_PATTERNS = (
+        "cover", "instruction", "readme", "overview", "index", "nav",
+        "help", "legend", "key", "copyright", "summary", "toc", "table of",
+        "how to", "guide", "notes", "ref", "drop", "lookup", "list",
+    )
+
     def _parse_rfp(self, rfp_id, filepath):
         ext = filepath.rsplit(".", 1)[-1].lower()
-        raw_rows = []
+        raw_rows: list[dict] = []
 
         if ext == "csv":
             with open(filepath, newline="", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     raw_rows.append(dict(row))
-        elif ext in ("xlsx", "xls"):
-            wb = openpyxl.load_workbook(filepath, data_only=True)
-            ws = wb.active
-            headers = None
-            for row in ws.iter_rows(values_only=True):
-                if not any(c for c in row if c is not None):
-                    continue
-                if headers is None:
-                    headers = [str(c).strip() if c is not None else f"col_{i}"
-                               for i, c in enumerate(row)]
-                else:
-                    row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
-                    raw_rows.append(row_dict)
+
+        elif ext in ("xlsx", "xls", "xlsm"):
+            # keep_vba=True preserves macros so they survive round-trip export
+            wb = openpyxl.load_workbook(filepath, data_only=True, keep_vba=(ext == "xlsm"))
+
+            has_macros = (ext == "xlsm") or bool(getattr(wb, "vba_archive", None))
+            sheets_found = wb.sheetnames
+
+            if has_macros:
+                self.emit("agent_progress", "Parser Agent",
+                          f"📎 Macro-enabled workbook (.xlsm) — reading computed cell values across {len(sheets_found)} sheet(s)")
+
+            # Decide which sheets to parse
+            def _is_nav_sheet(name: str) -> bool:
+                n = name.lower().strip()
+                return any(p in n for p in self._NAV_SHEET_PATTERNS)
+
+            def _sheet_has_content(ws) -> bool:
+                """Return True if the sheet looks like it has requirement-style data."""
+                if ws.max_row < 3 or ws.max_column < 2:
+                    return False
+                # Count non-empty cells in first 10 rows
+                cells_with_text = sum(
+                    1 for row in ws.iter_rows(min_row=1, max_row=10, values_only=True)
+                    for c in row
+                    if c and len(str(c).strip()) > 5
+                )
+                return cells_with_text >= 5
+
+            candidate_sheets = [
+                s for s in sheets_found
+                if not _is_nav_sheet(s) and _sheet_has_content(wb[s])
+            ]
+
+            # If everything was skipped, fall back to all non-empty sheets
+            if not candidate_sheets:
+                candidate_sheets = [s for s in sheets_found if _sheet_has_content(wb[s])]
+            # Final fallback: active sheet
+            if not candidate_sheets:
+                candidate_sheets = [wb.active.title]
+
+            self.emit("agent_progress", "Parser Agent",
+                      f"Scanning {len(candidate_sheets)}/{len(sheets_found)} sheet(s): {', '.join(candidate_sheets[:5])}")
+
+            for sheet_name in candidate_sheets:
+                ws = wb[sheet_name]
+                headers = None
+                for row in ws.iter_rows(values_only=True):
+                    if not any(c for c in row if c is not None):
+                        continue
+                    if headers is None:
+                        headers = [str(c).strip() if c is not None else f"col_{i}"
+                                   for i, c in enumerate(row)]
+                    else:
+                        row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+                        row_dict["_sheet"] = sheet_name  # track source tab
+                        raw_rows.append(row_dict)
+
         elif ext == "docx":
             # Extract content from Word document using python-docx.
             # Tables are the primary source (most RFPs use requirement tables);
@@ -841,15 +893,24 @@ Identify columns. Respond with JSON:
 
             category = str(row.get(cat_col, "") or "").strip() if cat_col else "General"
             priority = str(row.get(pri_col, "") or "").strip() if pri_col else ""
+            sheet    = str(row.get("_sheet", "") or "").strip()
 
-            q_id = self.db.create_question(rfp_id, i, category or "General", text)
+            # Prefix category with sheet name when multiple sheets are present
+            # so the SE knows which tab each requirement came from
+            if sheet and sheet not in (category, ""):
+                display_category = f"{sheet} › {category}" if category and category != "General" else sheet
+            else:
+                display_category = category or "General"
+
+            q_id = self.db.create_question(rfp_id, i, display_category, text)
             questions.append({
                 "id": q_id,
                 "row_index": i,
-                "category": category or "General",
+                "category": display_category,
                 "question_text": text,
                 "priority": priority,
                 "column_mapping": mapping,
+                "source_sheet": sheet,
             })
 
         return questions
