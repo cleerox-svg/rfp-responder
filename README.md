@@ -39,7 +39,12 @@ Open `http://localhost:5000` in your browser.
 
 **Authentication note:** Okta OIDC authentication is implemented but **disabled by default** so you can access the app without an Okta account. The auth plumbing (login, callback, logout routes + Settings UI) is visible in `app.py` and the Settings page. Enable it via Settings → Okta Authentication if you want to test the auth flow.
 
-**Knowledge base:** The app ships with 25 baseline Okta Q&A entries. To load the full 615-entry Okta SIG Core 2024 seed (requires `Okta_SIG_Core.xlsm`), run `py seed_sig.py`. The baseline KB is sufficient to demo the agent pipeline.
+**Knowledge base:** The app ships with 25 baseline Okta Q&A entries. To load the full 657-entry KB (SIG Core 2024 + Confluence compliance), run:
+```bash
+py seed_sig.py        # 615 entries from Okta_SIG_Core.xlsm
+py seed_confluence.py # 15 entries from internal Confluence docs
+```
+The baseline KB is sufficient to demo the agent pipeline.
 
 ---
 
@@ -194,25 +199,30 @@ Response codes follow standard vendor RFP notation:
 - **Preview panel** for pending RFPs showing requirement counts, categories, risk signals
 - **Human Review banner** (amber, pulsing) — surfaces all flagged questions prominently
 - **Inline edit for flagged questions** — response code picker, editable answer textarea, ✓ Approve as-is, ↺ Re-run AI on individual question
+- **↺ Re-run Agents** — re-process any completed RFP with three modes: All Questions / Flagged Only / Unanswered + Flagged. Uses the current KB automatically — ideal after adding new data sources.
 - Filter by category or "Needs Review"
 - Per-question confidence bars, source citations (internal only — stripped from exports), Okta product tags
-- Export to original CSV/XLSX format with colour-coded response codes
+- Export to original CSV/XLSX/XLSM format with colour-coded response codes (macros preserved in .xlsm)
 
 ### Knowledge Base
-- **640+ entries** seeded from Okta SIG Core 2024 security questionnaire
+- **657+ entries** across three sources: Okta SIG Core 2024 (615), internal Confluence compliance docs (15), hand-crafted baseline (25+)
 - **Multi-strategy search** — phrase match → prefix-AND → prefix-OR → LIKE fallback. Handles single words, fragments, acronyms (DR, MFA, SoD, BCP), and full sentences
 - **AI semantic search** — Claude matches by intent and context, not just keywords. Expands acronyms, finds related entries
 - **BLUF card** — when AI search is on, Claude generates a 2-4 sentence Bottom Line Up Front synthesising all found entries, shown above results
-- ⊕ Seed Okta Knowledge button — reloads baseline entries
+- ⊕ Seed buttons: Okta Knowledge (baseline), SIG Core 2024, Confluence
 - Grows with every RFP ingestion
 
-### Demo Prep
+### Demo Prep — APEX / Command of the Message aligned
 - **🎭 Demo Prep button** on any completed RFP
-- Agent reads all answered requirements and generates:
-  - 4–6 ordered demo sections (Critical requirements first)
-  - Per-section: scenario framing, 3–4 demo steps, talking points, differentiators, Okta products
-  - Demo environment setup notes
-  - "Prepare to Address" list for flagged/uncertain areas
+- Agent reads all answered requirements and generates a full **APEX Brief** (Okta's CoM-powered sales framework):
+  - **Deal Mantra** — 1-2 sentence power statement in customer language
+  - **Before Scenario** — current pain state with Negative Consequences
+  - **After Scenario** — desired future state with Positive Business Outcomes (PBOs)
+  - **Required Capabilities** — framed to favour Okta differentiators as objectively necessary
+  - **Unique Differentiators** — why Okta specifically
+- 4–6 ordered demo sections each mapping to a PBO and Required Capability
+- Per-section: CoM-aligned talking points (Before → After language), demo steps, differentiators
+- **Pre-Demo Discovery Questions** to validate the APEX brief before the call
 - **✓ Confirm** to save to the Demo Library
 - **Demo Library** — searchable catalogue of confirmed demo plans across all RFPs
 
@@ -414,26 +424,32 @@ This loads 615 entries from `Okta_SIG_Core.xlsm` into the KB.
 
 ```
 rfp-responder/
-├── app.py              Flask backend — all routes, SSE streaming, Okta auth stubs
-├── agents.py           All 9 agent classes, tools, web search, KB search
+├── app.py              Flask backend — routes, SSE, multi-doc, re-run, .env bootstrap
+├── agents.py           All 9 agents + APEX/CoM demo prep + multi-tab XLSX/DOCX parser
 ├── db.py               SQLite wrapper — thread-local connections, FTS5, multi-doc
-├── export_handler.py   CSV/XLSX export with colour-coded response codes
+├── export_handler.py   Multi-sheet CSV/XLSX/XLSM export (VBA macros preserved)
 ├── seed_kb.py          25 hand-crafted Okta baseline Q&A pairs
 ├── seed_sig.py         Loads Okta_SIG_Core.xlsm → KB (615 entries)
+├── seed_confluence.py  15 entries from Okta internal Confluence compliance docs
+├── discovery.py        RFP discovery from external sources
+├── relevance.py        Relevance scoring for discovered RFPs
 ├── sample_rfp.csv      34-requirement IGA RFP for testing
+├── setup.sh            One-command Mac/Linux setup (venv + deps + .env)
 ├── .env.example        Credential template — copy to .env and fill in API key
 ├── SESSION_LOG.md      Full build session log — decisions, problems, prompts
 ├── CLAUDE.md           Claude Code project instructions
 ├── README.md           This file
 ├── docs/
-│   ├── solution.md     Problem statement and scope (hackathon Day 1 spec)
-│   ├── prd.md          Full PRD with 34 user stories
-│   └── multiAgentDesign.md  Multi-agent architecture design (817 lines)
+│   ├── solution.md          Problem statement and scope
+│   ├── prd.md               Full PRD with user stories
+│   ├── multiAgentDesign.md  Multi-agent architecture design
+│   ├── day3-build-plan.md   Build plan
+│   └── feature-rfp-discovery.md  RFP discovery feature spec
 ├── templates/
 │   └── index.html      Single-page app shell — collapsible sidebar, all pages
 ├── static/
 │   ├── style.css       Okta dark navy theme with 3D depth token system
-│   └── app.js          Full SPA — routing, agents, KB, demo prep, multi-doc
+│   └── app.js          Full SPA — routing, agents, KB, APEX demo prep, multi-doc
 ├── uploads/            Uploaded RFP files (gitignored)
 ├── exports/            Generated export files (gitignored)
 └── naughtrfp.db        SQLite database (gitignored)

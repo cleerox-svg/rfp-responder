@@ -102,6 +102,45 @@ Seven agents in sequence, communicating via SSE stream to the frontend:
 - `db.sync_rfp_counts(rfp_id)` aggregates counts across all documents
 - `AgentPipeline.process_document(rfp_id, doc_id, filepath)` — processes one document
 
+### 14. Feature: APEX/CoM Demo Prep
+- Found Okta's APEX framework via Confluence search (APEX = MEDDPICCC + Command of the Message)
+- `DemoPrepAgent.generate()` now produces a full APEX Brief: Mantra, Before/After, PBOs, Required Capabilities, Unique Differentiators
+- Each demo section maps to a PBO and Required Capability; talking points use CoM Before→After language
+- Discovery questions added to validate the brief pre-demo
+- Purple APEX Brief card shown at top of demo plan in UI
+
+### 15. Feature: KB enrichment from Atlassian Confluence
+- `seed_confluence.py` — 15 Q&A pairs from Okta internal Confluence (ISO 27001, SOC 2, FedRAMP, HIPAA, data residency, DR, etc.)
+- Uses exact-match dedup (not FTS) to avoid false positives against SIG entries
+- `/api/kb/seed-confluence` endpoint for re-seeding from UI
+- KB total: 657 entries (SIG 615 + Confluence 15 + baseline 25+)
+
+### 16. Feature: Re-run Agents
+- `GET /api/rfp/<id>/rerun?mode=all|flagged|unanswered` SSE endpoint
+- Resets question statuses then re-runs the full pipeline with current KB
+- Three modes: all (fresh start), flagged (just review items), unanswered+flagged
+- ↺ Re-run button with mode panel on completed RFP detail page
+
+### 17. Feature: Multi-tab XLSX/XLSM support
+- Parser Agent now iterates ALL sheets, not just active sheet
+- Skips nav/cover tabs by name heuristic (cover, instruction, legend, key, etc.)
+- Tags each question with source sheet: `"Sheet › Category"` in category column
+- `.xlsm` macro-enabled workbooks: detected, data read with `data_only=True`, exported with `keep_vba=True`
+- Export writes back to EVERY matching sheet, not just active one
+- Added `.xlsm` to ALLOWED formats and all file pickers/filters
+
+### 18. Bug fix: DOCX multi-table parsing
+- **Root cause**: AHS Technical ResponseWork.docx has 15+ tables each with different headers. Parser sent only first table's header to Claude; `row.get()` returned empty for all other tables → 0 requirements
+- **Fix**: `_parse_docx_rows` normalises ALL table rows to `{"requirement": text, "section": table_header}` — consistent regardless of original column names
+- Scoring/rubric tables filtered by regex (`Excellent Response`, `General Instructions`, etc.)
+- `_parse_rfp` DOCX path now hard-wires `req_col="requirement"` — doesn't rely on Claude column detection
+- Result: 80 clean requirements from AHS DOCX vs 0 before
+
+### 19. Mac/Linux setup fix
+- Added `setup.sh` — one-command venv creation + dep install + .env copy
+- Fixes "externally managed environment" pip error on macOS (Homebrew Python)
+- `python-docx` added to all install instructions
+
 ---
 
 ## Key technical decisions and why
