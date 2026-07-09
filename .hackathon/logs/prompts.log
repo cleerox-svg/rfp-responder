@@ -1,0 +1,281 @@
+# NaughtRFP — Hackathon Coaching Dialogue Log
+# Session: 2026-07-07 (Day 1) + 2026-07-08 (Day 2)
+# Participant: Claude Leroux, Okta Solutions Engineer, Canada Public Sector
+
+================================================================================
+DAY 1 — Spec-Driven Development
+Skills invoked: /start-day, /grill-me, /to-prd, /wrap-day
+================================================================================
+
+--- GRILL-ME SESSION ---
+
+COACH: What problem are you actually solving, and who experiences it?
+
+PARTICIPANT: My SEs spend a considerable amount of time reading, assessing,
+researching, populating and preparing for RFPs and their associated demos.
+I want to reduce that time and also help them with the demo prep with this
+platform. Give a fit score, help populate as much as possible and take it
+from there.
+
+COACH recommended one-liner: "Okta Pre-Sales SEs spend 8-40 hours manually
+answering RFP security questionnaires and preparing demos. NaughtRFP uses a
+multi-agent AI pipeline to auto-answer requirements, score fit/risk, and
+generate demo scripts so SEs can focus on the deal."
+
+PARTICIPANT: Yes it does. [confirmed]
+
+---
+
+COACH: What does the 3-minute demo look like? Walk me through exactly what
+you would show a judge.
+
+PARTICIPANT: I want to show uploading an RFP which could be a single csv file
+or multiple files. Find the questions, question IDs and response tables. Then
+assess fit based on Okta service offerings, help answer questions from publicly
+available Okta information or from context provided in the response library.
+Tell the SE when done analyzing. Have them review human-required responses.
+Export in the same file format as ingested. Kick off demo prep and review.
+
+COACH scope recommendation: Must-have: CSV/XLSX upload, agent pipeline, human
+review of flagged items, export, demo prep. Nice-to-have/deferred: Google
+Sheets/Docs ingestion, email draft, SIG/cert upload as KB sources.
+
+PARTICIPANT: Yes I agree. [scope confirmed]
+
+---
+
+COACH: Where does Okta/identity fit explicitly? This is a judging criterion.
+
+COACH recommendation: Two angles. (1) Content: KB seeded from Okta SIG Core
+2024 responses so every AI answer is grounded in what Okta actually offers.
+(2) Use case: end users are Okta Pre-Sales SEs; platform directly accelerates
+Okta sales motion. The tool IS an identity sales tool.
+
+PARTICIPANT: That is a perfect framing. [confirmed]
+
+---
+
+COACH: Who are the actors using this system?
+
+COACH recommendation: One primary actor - the Okta Pre-Sales SE. Secondary:
+SE Manager/team lead via Demo Library.
+
+PARTICIPANT: Okta Pre-Sales SE is the actor. [single actor confirmed]
+
+---
+
+COACH: When should the AI answer confidently vs. hand off to the SE?
+
+COACH recommendation: Flag for human review when confidence below 60%, when
+legally sensitive (SLAs, data residency, compliance), or when no KB/web source
+backs the answer. Never hallucinate - uncertain = flagged.
+
+PARTICIPANT: Yes that matches well. [confirmed]
+
+---
+
+COACH: What is in the knowledge base and how does it get populated?
+
+COACH recommendation: Three layers: (1) Okta SIG Core 2024 seed ~615 entries,
+(2) 25 hand-crafted Okta baseline Q&A, (3) past completed RFPs ingested by SEs
+for compounding improvement. Web search fallback to okta.com/trust.okta.com.
+
+PARTICIPANT: The true threshold should be 80-90% although that is once it is
+out of POC. [clarified: 60% POC threshold, 80-90% production target]
+
+PARTICIPANT: KB layering is correct. [confirmed]
+
+--- END GRILL-ME ---
+
+--- USER STORIES CONFIRMED ---
+
+COACH: Extracted 8 user stories from grill-me dialogue. Presented to participant
+for review before invoking /to-prd.
+
+PARTICIPANT: looks good [all 8 user stories confirmed, no changes requested]
+
+--- /to-prd INVOKED ---
+
+Produced: docs/solution.md
+Content: problem statement, two identity angles, 5-beat demo scenario with
+"wow moment" identified (live agent feed), scope boundaries (in/out),
+technical approach, open questions (confidence threshold, merged cells, KB dedup)
+
+Produced: docs/prd.md
+Content: 34 user stories covering upload, pipeline, review, export, demo prep,
+KB ingestion, settings, auth plumbing. Implementation decisions with rationale.
+Out-of-scope list. Notes on judging criteria alignment.
+
+COMMIT: 7484d57 "spec: add solution.md and prd.md before any code"
+Spec committed before code — evaluation criterion satisfied.
+
+--- POST-SPEC BUILD DECISIONS ---
+
+PARTICIPANT: The next part is to create the plumbing in the application to run
+auth through Okta. Plumbing only in settings or admin. I will not actually
+connect the auth just yet as the judges need to access the app unauthenticated,
+but I would like the plumbing and the UI to have it while the instructions
+have it described as well and why it is disabled.
+
+RESULT: Okta OIDC auth added to app.py - routes /auth/login, /auth/callback,
+/auth/logout implementing Authorization Code + PKCE flow. Settings UI section
+with domain, client ID, redirect URI fields and enable toggle. Amber warning
+banner explaining why auth is disabled for judging. Auth bypassed by default
+(okta_auth_enabled=false).
+COMMIT: b6a1204 "feat: add Okta OIDC auth plumbing (disabled for judging)"
+
+---
+
+PARTICIPANT: If a judge wants to test the code will they have to import their
+own AI key? [...] Include a .env file. I want to make sure it is good. They
+are using an agent to judge so let us make it easy for the agent.
+
+RESULT: .env.example created with LITELLM_BASE_URL and LITELLM_API_KEY.
+_load_dotenv() and _env_bootstrap() added to app.py — reads .env on startup,
+writes to SQLite settings automatically. No UI interaction needed for judges.
+README For Judges section added at top with 4-step quick start.
+COMMIT: 41b9078 "docs: add judge quick-start, .env.example, and env var bootstrap"
+
+---
+
+PARTICIPANT: After this is done lets figure out how to ensure the right AI
+model is assigned to each agent based on their role for the purpose of
+protecting tokens and usage.
+
+PARTICIPANT: We should call out which model each agent is tasked with in the UI.
+
+RESULT: _MODEL_FAST = "claude-haiku-4-5" added to agents.py alongside existing
+_MODEL = "claude-sonnet-4-6". Assignment rationale:
+- Haiku: Customer Agent (JSON extraction), Parser Agent (column detection),
+  Web Summarizer (fact extraction, 400 tokens max)
+- Sonnet: Analysis Agent (Okta product mapping), Answer Agent (agentic loop
+  with tool use), Demo Prep Agent (complex synthesis), AI KB Search (BLUF)
+- No LLM: Scoring (aggregation), Review (rule-based), Research (FTS5+httpx),
+  KB Ingestion (local dedup)
+Agent cards in UI updated with model tier badges: blue Sonnet, green Haiku,
+muted Local/None. Flyout shows full model ID.
+COMMIT: f1552b9 "perf: right-size models per agent, show model on agent cards"
+
+---
+
+PARTICIPANT: In another session I had it create prompt logs or data around
+how I prompted to create the platform. Can you review and add them to the
+prompt log file in all 3 locations specifically in Git.
+
+RESULT: SESSION_LOG.md from rfp-responder reviewed and copied to hackathon
+repo. Contains: 13 build features in chronological order with technical
+rationale, key decisions table, problems+solutions table, current DB/settings
+state, planned features, assessment prompts for new sessions. Appended to
+prompts.log. Committed to GitHub.
+COMMIT: 6c656ad "docs: add original build session log and prompt history"
+
+================================================================================
+DAY 2 — Multi-Agent Team Design
+Skills invoked: /start-day, /design-agents
+================================================================================
+
+--- DESIGN-AGENTS SESSION ---
+
+COACH: Presented two-tier mental model before interrogation. Tier 1 Strategic
+agents plan/coordinate/sequence but do not write code. Tier 2 Implementation
+agents are doers with narrow deep context. Context boundary decisions ARE
+architectural decisions.
+
+---
+
+COACH Q1: What Tier 1 strategic roles does this project need?
+
+COACH recommendation: Three roles — Product Owner (user stories, success
+criteria, scope arbitration), Architect (pipeline shape, API contracts, SQLite
+design, synthesizes implementation agent assessment reports into prioritized
+improvement plan), Project Manager (sequences work, identifies parallelism,
+fans tasks to implementation agents).
+
+PARTICIPANT: This model seems reasonable and logical. Let us continue.
+[confirmed]
+
+---
+
+COACH Q2: What Tier 2 discipline agents does this project need?
+
+COACH recommendation: Four — Backend Engineer (app.py, Flask routes, SSE,
+export handler), Frontend Engineer (app.js, index.html, full SPA), Data
+Engineer (db.py, SQLite schema, FTS5, indexes, thread-safety), AI Pipeline
+Engineer (agents.py exclusively — all 9 agent classes, tool definitions, model
+constants, agentic tool loop, parallelism).
+
+PARTICIPANT: Yes this is a solid model. [confirmed]
+
+---
+
+COACH Q3: Are there technology specialist agents needed?
+
+COACH initial recommendation: Okta/Identity Specialist for OIDC and LiteLLM.
+
+PARTICIPANT: I do not know if it will be just an Okta specialist. I would call
+them an integration specialist as they will maintain Auth, Integrations to
+other resources including MCPs and their associated resources (Google
+workspace, Slack and more).
+
+COACH: Good refinement adopted. Integration Specialist owns: Okta OIDC
+(Authorization Code + PKCE), LiteLLM proxy config (llm.atko.ai, SSL bypass,
+model naming, key format), MCP server connections (Google Workspace, Slack,
+Salesforce, Highspot, future additions), .env bootstrap pattern. Scoped to
+integration pattern not specific tool — durable as integrations grow.
+
+---
+
+COACH Q4: What does each agent need to know and NOT know?
+
+COACH presented context boundary table covering all 8 agents with explicit
+Needs and Must NOT columns. Key boundaries: Backend does not touch agents.py
+or integration specifics. AI Pipeline Engineer owns agents.py exclusively.
+Integration Specialist does not touch business logic or DB schema. Frontend
+talks to API only, does not know backend implementation.
+
+PARTICIPANT: These boundaries are logical. [confirmed]
+
+---
+
+COACH Q5: What is the first task sequence?
+
+COACH initial recommendation: Tracer bullet upload to export touching all
+agents, with parallel workers after Architect API contract exists.
+
+PARTICIPANT: Considering the code has been built, I would ask the current
+agents to assess their respective areas of code based on the plan, then come
+back with their assessment and recommendations to improve and/or change code
+and plan. Run some in parallel.
+
+COACH: Participant refinement adopted as first task sequence.
+Parallel wave 1 (simultaneous): AI Pipeline Engineer audits agents.py,
+Backend Engineer audits app.py, Data Engineer audits db.py, Frontend Engineer
+audits app.js + index.html, Integration Specialist audits auth + LiteLLM +
+.env + MCP readiness.
+Sequential after wave 1: Architect receives all 5 reports, synthesizes into
+prioritized improvement plan with rationale. PM receives plan, sequences tasks
+into next parallel wave with dependency map.
+
+--- AGENT DESIGN ARTEFACTS PRODUCED ---
+
+docs/multiAgentDesign.md — full design rationale, context boundaries per
+agent, interface diagrams (assessment wave + ongoing build loop), first task
+sequence, design decisions with reasoning.
+
+.claude/agents/strategic/product-owner.md
+.claude/agents/strategic/architect.md
+.claude/agents/strategic/project-manager.md
+.claude/agents/implementation/backend-engineer.md
+.claude/agents/implementation/frontend-engineer.md
+.claude/agents/implementation/data-engineer.md
+.claude/agents/implementation/ai-pipeline-engineer.md
+.claude/agents/implementation/integration-specialist.md
+
+All 8 agent definition files include: name, description (routing-optimized),
+role, context received, constraints, output contract, working style.
+
+COMMIT: fe27edf "feat(agents): add multi-agent team design and agent definitions"
+
+================================================================================
+END OF LOG
+================================================================================
