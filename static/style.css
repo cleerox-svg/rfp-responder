@@ -784,6 +784,16 @@ a:hover { color: var(--text-primary); }
 /* ── KB Page ────────────────────────────────────────────────────────────── */
 .search-bar { display: flex; gap: 8px; margin-bottom: 22px; }
 
+/* ── KB Upload — agent log lines ────────────────────────────────────────── */
+.agent-log {
+  padding: 2px 0;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}
+.agent-log.success { color: var(--green); }
+.agent-log.error   { color: var(--red); }
+
 /* ── Shared input style (inset/well) ─ reused by search-input and text-input */
 .search-input,
 .text-input {

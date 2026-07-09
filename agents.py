@@ -1170,6 +1170,337 @@ class KnowledgeBaseAgent:
         return ingested
 
 
+# ── KB Direct Ingestion Agent ─────────────────────────────────────────────────
+
+class KBDirectIngestionAgent:
+    """
+    Ingest a file (CSV, XLSX, XLSM, DOCX) directly into the knowledge base,
+    extracting Q&A pairs without creating an RFP project.
+
+    SSE events emitted (agent name: "KB Direct Ingestion Agent"):
+        agent_start    — ingestion begins
+        agent_progress — after parsing, after each extraction batch, dedup progress
+        agent_complete — final summary with inserted/skipped/total_extracted counts
+    """
+
+    def __init__(self, api_key: str, db, event_queue):
+        self.api_key = api_key
+        self.db = db
+        self.q = event_queue
+        self.client = _make_client(api_key)
+
+    def emit(self, event_type, message="", data=None):
+        self.q.put({
+            "type": event_type,
+            "agent": "KB Direct Ingestion Agent",
+            "message": message,
+            **({"data": data} if data else {}),
+            "timestamp": time.time(),
+        })
+
+    # ── Nav-sheet filter (mirrors AgentPipeline._NAV_SHEET_PATTERNS) ──────────
+    _NAV_SHEET_PATTERNS = AgentPipeline._NAV_SHEET_PATTERNS
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _parse_file(self, filepath: str) -> list[dict]:
+        """Parse filepath into a list of row dicts, identical logic to AgentPipeline._parse_rfp."""
+        ext = filepath.rsplit(".", 1)[-1].lower()
+        raw_rows: list[dict] = []
+
+        if ext == "csv":
+            with open(filepath, newline="", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    raw_rows.append(dict(row))
+
+        elif ext in ("xlsx", "xls", "xlsm"):
+            wb = openpyxl.load_workbook(filepath, data_only=True, keep_vba=(ext == "xlsm"))
+
+            def _is_nav_sheet(name: str) -> bool:
+                n = name.lower().strip()
+                return any(p in n for p in self._NAV_SHEET_PATTERNS)
+
+            def _sheet_has_content(ws) -> bool:
+                if ws.max_row < 3 or ws.max_column < 2:
+                    return False
+                cells_with_text = sum(
+                    1 for row in ws.iter_rows(min_row=1, max_row=10, values_only=True)
+                    for c in row
+                    if c and len(str(c).strip()) > 5
+                )
+                return cells_with_text >= 5
+
+            sheets_found = wb.sheetnames
+            candidate_sheets = [
+                s for s in sheets_found
+                if not _is_nav_sheet(s) and _sheet_has_content(wb[s])
+            ]
+            if not candidate_sheets:
+                candidate_sheets = [s for s in sheets_found if _sheet_has_content(wb[s])]
+            if not candidate_sheets:
+                candidate_sheets = [wb.active.title]
+
+            for sheet_name in candidate_sheets:
+                ws = wb[sheet_name]
+                headers = None
+                for row in ws.iter_rows(values_only=True):
+                    if not any(c for c in row if c is not None):
+                        continue
+                    if headers is None:
+                        headers = [str(c).strip() if c is not None else f"col_{i}"
+                                   for i, c in enumerate(row)]
+                    else:
+                        row_dict = {headers[i]: row[i]
+                                    for i in range(min(len(headers), len(row)))}
+                        row_dict["_sheet"] = sheet_name
+                        raw_rows.append(row_dict)
+
+        elif ext == "docx":
+            raw_rows = _parse_docx_rows(filepath)
+
+        return raw_rows
+
+    def _detect_mode(self, rows: list[dict]) -> dict:
+        """
+        Ask Claude Haiku with a 3-row sample to determine structured vs unstructured.
+        Returns dict with keys: mode, question_column, answer_column, category_column.
+        """
+        sample = json.dumps(
+            [{k: str(v)[:120] for k, v in r.items()} for r in rows[:3]],
+            default=str,
+        )
+        headers = list(rows[0].keys()) if rows else []
+
+        resp = self.client.messages.create(
+            model=_MODEL_FAST,
+            max_tokens=256,
+            system="You analyze document structures. Respond with valid JSON only.",
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Headers: {headers}\n"
+                    f"Sample rows (first 3):\n{sample}\n\n"
+                    "Determine whether this file has clearly separable question and answer columns.\n"
+                    "- structured: file has a dedicated question column AND a dedicated answer column\n"
+                    "- unstructured: single-column, free text, or no dedicated answer column\n\n"
+                    "Respond with JSON:\n"
+                    '{"mode": "structured"|"unstructured", '
+                    '"question_column": "<exact header>"|null, '
+                    '"answer_column": "<exact header>"|null, '
+                    '"category_column": "<exact header>"|null}'
+                ),
+            }],
+        )
+        return _extract_json(resp.content[0].text) or {
+            "mode": "unstructured",
+            "question_column": None,
+            "answer_column": None,
+            "category_column": None,
+        }
+
+    def _extract_structured(self, rows: list[dict], mode_info: dict) -> list[dict]:
+        """
+        Extract Q&A pairs from a structured file without additional LLM calls.
+        Each row must have a non-empty question AND answer >= 10 chars each.
+        """
+        q_col = mode_info.get("question_column")
+        a_col = mode_info.get("answer_column")
+        c_col = mode_info.get("category_column")
+
+        pairs = []
+        for row in rows:
+            question = str(row.get(q_col, "") or "").strip()
+            answer   = str(row.get(a_col, "") or "").strip()
+            category = str(row.get(c_col, "") or "General").strip() if c_col else "General"
+            if not category:
+                category = "General"
+
+            if len(question) < 10 or len(answer) < 10:
+                continue
+
+            pairs.append({
+                "question":      question,
+                "answer":        answer,
+                "category":      category,
+                "response_code": "",
+                "okta_products": [],
+            })
+        return pairs
+
+    def _extract_unstructured_batch(self, batch: list[dict]) -> list[dict]:
+        """
+        Call Claude Sonnet on a batch of rows and extract Q&A pairs.
+        Returns a list of pair dicts (may be empty on parse error).
+        """
+        batch_text = json.dumps(
+            [{k: str(v)[:300] for k, v in row.items()} for row in batch],
+            default=str,
+        )
+        resp = self.client.messages.create(
+            model=_MODEL,
+            max_tokens=2048,
+            system=(
+                "You are a knowledge extraction specialist for Okta identity platform documentation. "
+                "Extract question-answer pairs from the provided content. "
+                "Respond with valid JSON only — a list of objects."
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Extract self-contained Q&A pairs from the rows below that would be useful "
+                    "when answering future Okta RFP questions.\n\n"
+                    "Rules:\n"
+                    "- Each pair must be self-contained and useful for future RFP responses\n"
+                    "- category: infer from content (Authentication, Governance, Compliance, "
+                    "Infrastructure, Lifecycle, Privileged Access, Integrations, etc.)\n"
+                    "- response_code: F/P/C/NE/N based on content — omit if unclear\n"
+                    "- okta_products: list of relevant Okta products, or empty list\n"
+                    "- Minimum answer length: 20 chars\n"
+                    "- Skip rows that are page numbers, navigation, headers, or empty\n\n"
+                    f"Rows:\n{batch_text}\n\n"
+                    "Return a JSON array:\n"
+                    '[{"question": "...", "answer": "...", "category": "...", '
+                    '"response_code": "F", "okta_products": ["Okta Access Management"]}]'
+                ),
+            }],
+        )
+        pairs = _extract_json(resp.content[0].text, kind="array") or []
+        if not isinstance(pairs, list):
+            return []
+        # Filter minimum answer length
+        return [
+            p for p in pairs
+            if isinstance(p, dict)
+            and len(str(p.get("answer", "")).strip()) >= 20
+            and len(str(p.get("question", "")).strip()) >= 5
+        ]
+
+    # ── Public interface ──────────────────────────────────────────────────────
+
+    def ingest_file(self, filepath: str, source_name: str) -> dict:
+        """
+        Parse filepath and extract Q&A pairs into the knowledge base.
+
+        Args:
+            filepath:    Absolute path to the file to ingest.
+            source_name: Display name shown in KB entries (e.g. original filename stem).
+
+        Returns:
+            {"inserted": int, "skipped": int, "total_extracted": int}
+        """
+        self.emit("agent_start",
+                  f"Starting direct KB ingestion from '{source_name}'…")
+
+        # ── Step 1: Parse the file ─────────────────────────────────────────────
+        try:
+            raw_rows = self._parse_file(filepath)
+        except Exception as exc:
+            self.emit("agent_complete",
+                      f"Failed to parse '{source_name}': {exc}",
+                      {"inserted": 0, "skipped": 0, "total_extracted": 0})
+            return {"inserted": 0, "skipped": 0, "total_extracted": 0}
+
+        if not raw_rows:
+            self.emit("agent_complete",
+                      f"No rows found in '{source_name}'",
+                      {"inserted": 0, "skipped": 0, "total_extracted": 0})
+            return {"inserted": 0, "skipped": 0, "total_extracted": 0}
+
+        self.emit("agent_progress",
+                  f"Parsed {len(raw_rows)} rows from '{source_name}'",
+                  {"rows_parsed": len(raw_rows)})
+
+        # ── Step 2: Detect file mode ───────────────────────────────────────────
+        mode_info = self._detect_mode(raw_rows)
+        mode = mode_info.get("mode", "unstructured")
+        q_col = mode_info.get("question_column")
+        a_col = mode_info.get("answer_column")
+
+        self.emit("agent_progress",
+                  f"File mode: {mode} "
+                  f"(question_col={q_col!r}, answer_col={a_col!r})")
+
+        # ── Step 3: Extract Q&A pairs ──────────────────────────────────────────
+        extracted_pairs: list[dict] = []
+
+        if mode == "structured" and q_col and a_col:
+            # Step 3a: structured — no extra LLM calls
+            extracted_pairs = self._extract_structured(raw_rows, mode_info)
+            self.emit("agent_progress",
+                      f"Structured extraction: {len(extracted_pairs)} pairs found")
+        else:
+            # Step 3b: unstructured — batch LLM extraction
+            batch_size = 20
+            batches = [raw_rows[i:i + batch_size]
+                       for i in range(0, len(raw_rows), batch_size)]
+            for batch_num, batch in enumerate(batches, 1):
+                try:
+                    pairs = self._extract_unstructured_batch(batch)
+                    extracted_pairs.extend(pairs)
+                except Exception as exc:
+                    self.emit("agent_progress",
+                              f"Batch {batch_num}/{len(batches)} failed: {exc}")
+                    continue
+                self.emit("agent_progress",
+                          f"Batch {batch_num}/{len(batches)} processed — "
+                          f"{len(extracted_pairs)} pairs extracted so far",
+                          {"extracted_so_far": len(extracted_pairs)})
+
+        total_extracted = len(extracted_pairs)
+
+        # ── Step 4: Deduplication and insert ──────────────────────────────────
+        inserted = 0
+        skipped  = 0
+
+        for pair in extracted_pairs:
+            question      = str(pair.get("question", "")).strip()
+            answer        = str(pair.get("answer", "")).strip()
+            category      = str(pair.get("category", "General")).strip() or "General"
+            response_code = str(pair.get("response_code", "")).strip() or None
+            okta_products = pair.get("okta_products", [])
+            if not isinstance(okta_products, list):
+                okta_products = []
+
+            if not question or not answer:
+                skipped += 1
+                continue
+
+            # Dedup: exact case-insensitive match only — avoids FTS false positives
+            # that would silently suppress all insertions when the KB is non-empty.
+            with self.db.conn() as _c:
+                _dup = _c.execute(
+                    "SELECT id FROM knowledge_base WHERE lower(trim(question)) = lower(trim(?))",
+                    (question,),
+                ).fetchone()
+            if _dup:
+                skipped += 1
+                continue
+
+            try:
+                self.db.add_to_knowledge_base(
+                    source_rfp_name=source_name,
+                    category=category,
+                    question=question,
+                    answer=answer,
+                    response_code=response_code,
+                    okta_products=okta_products,
+                )
+                inserted += 1
+            except Exception:
+                skipped += 1
+
+        # ── Step 5: Emit completion ────────────────────────────────────────────
+        self.emit(
+            "agent_complete",
+            f"Added {inserted} new entries from '{source_name}' "
+            f"({skipped} duplicates skipped)",
+            {"inserted": inserted, "skipped": skipped, "total_extracted": total_extracted},
+        )
+
+        return {"inserted": inserted, "skipped": skipped, "total_extracted": total_extracted}
+
+
 # ── Demo Prep Agent ───────────────────────────────────────────────────────────
 
 class DemoPrepAgent:

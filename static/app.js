@@ -1394,6 +1394,76 @@ async function openDemoDetail(planId, rfpId) {
 }
 
 /* ── KB Page ─────────────────────────────────────────────────────────────── */
+
+async function uploadToKB(file) {
+  const progressEl = document.getElementById('kb-upload-progress');
+  const resultEl   = document.getElementById('kb-upload-result');
+  if (!progressEl) return;
+
+  progressEl.innerHTML = `<div class="agent-log"><span class="spin">⟳</span> Uploading ${esc(file.name)}…</div>`;
+  progressEl.style.display = 'block';
+  if (resultEl) resultEl.textContent = '';
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  try {
+    const resp = await fetch('/api/kb/upload-document', { method: 'POST', body: fd });
+
+    if (!resp.ok) {
+      let errMsg = 'Upload failed';
+      try { const err = await resp.json(); errMsg = err.error || errMsg; } catch { /* ignore */ }
+      progressEl.innerHTML = `<div class="agent-log error">✗ ${esc(errMsg)}</div>`;
+      return;
+    }
+
+    // Read SSE stream line by line
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE events are separated by double newlines
+      const chunks = buffer.split('\n\n');
+      buffer = chunks.pop(); // last chunk may be incomplete
+
+      for (const chunk of chunks) {
+        const line = chunk.trim();
+        if (!line.startsWith('data: ')) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+
+        if (ev.type === 'agent_start' || ev.type === 'agent_progress') {
+          progressEl.innerHTML += `<div class="agent-log">${esc(ev.message)}</div>`;
+          progressEl.scrollTop = progressEl.scrollHeight;
+        }
+        if (ev.type === 'agent_complete') {
+          const d = ev.data || {};
+          progressEl.innerHTML += `<div class="agent-log success">✓ ${esc(ev.message)}</div>`;
+          progressEl.scrollTop = progressEl.scrollHeight;
+          if (resultEl) {
+            resultEl.textContent = `Added ${d.inserted ?? 0} entries (${d.skipped ?? 0} duplicates skipped)`;
+          }
+          // Refresh KB stats + results to reflect new entries
+          renderKB();
+        }
+        if (ev.type === 'error') {
+          progressEl.innerHTML += `<div class="agent-log error">✗ ${esc(ev.message)}</div>`;
+          progressEl.scrollTop = progressEl.scrollHeight;
+        }
+      }
+    }
+  } catch (err) {
+    if (progressEl) {
+      progressEl.innerHTML = `<div class="agent-log error">✗ ${esc(err.message)}</div>`;
+    }
+  }
+}
+
 async function renderKB() {
   const [stats] = await Promise.all([API.get('/api/kb/stats')]);
   state.kbStats = stats;
@@ -1403,6 +1473,53 @@ async function renderKB() {
       <strong style="color:var(--text-primary)">${stats.total}</strong> entries from
       <strong style="color:var(--text-primary)">${stats.source_rfps}</strong> RFPs
     </span>`;
+
+  // Inject upload card above search bar if not already present
+  const pageKb = document.getElementById('page-kb');
+  if (pageKb && !document.getElementById('kb-upload-zone')) {
+    const uploadCard = document.createElement('div');
+    uploadCard.id = 'kb-upload-card';
+    uploadCard.className = 'card';
+    uploadCard.style.marginBottom = '20px';
+    uploadCard.innerHTML = `
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <h3 style="margin:0;font-size:1rem;color:var(--text-primary)">Upload Document to Knowledge Base</h3>
+        <span style="font-size:.8rem;color:var(--text-muted)">CSV · XLSX · XLSM · DOCX</span>
+      </div>
+      <div class="card-body">
+        <div id="kb-upload-zone" class="upload-zone" style="min-height:80px;padding:20px;text-align:center;cursor:default">
+          <input type="file" id="kb-upload-input" accept=".csv,.xlsx,.xls,.xlsm,.docx" style="display:none">
+          <div style="color:var(--text-muted);font-size:.875rem">
+            Drop a file here or
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('kb-upload-input').click()">
+              ⊕ Choose File
+            </button>
+          </div>
+        </div>
+        <div id="kb-upload-progress" style="display:none;margin-top:12px;max-height:150px;overflow-y:auto;font-size:.8rem"></div>
+        <div id="kb-upload-result" style="margin-top:8px;font-size:.8rem;color:var(--accent-green,var(--green))"></div>
+      </div>`;
+
+    // Insert before the search bar (first child after page-header)
+    const searchBar = pageKb.querySelector('.search-bar');
+    if (searchBar) {
+      pageKb.insertBefore(uploadCard, searchBar);
+    } else {
+      pageKb.appendChild(uploadCard);
+    }
+
+    // Wire up file input
+    const inp  = document.getElementById('kb-upload-input');
+    const zone = document.getElementById('kb-upload-zone');
+    inp.onchange  = e => { if (e.target.files[0]) { uploadToKB(e.target.files[0]); inp.value = ''; } };
+    zone.ondragover  = e => { e.preventDefault(); zone.classList.add('drag-over'); };
+    zone.ondragleave = () => zone.classList.remove('drag-over');
+    zone.ondrop      = e => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      if (e.dataTransfer.files[0]) uploadToKB(e.dataTransfer.files[0]);
+    };
+  }
 
   await loadKBResults('');
 }

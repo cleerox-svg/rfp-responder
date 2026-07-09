@@ -14,7 +14,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 from werkzeug.utils import secure_filename
 
 from db import Database
-from agents import (AgentPipeline, KnowledgeBaseAgent, ai_search_knowledge_base,
+from agents import (AgentPipeline, KnowledgeBaseAgent, KBDirectIngestionAgent, ai_search_knowledge_base,
                     detect_customer, set_litellm_base_url, set_web_search_enabled,
                     DemoPrepAgent)
 from export_handler import export_rfp as do_export
@@ -1431,6 +1431,50 @@ def seed_sig_kb():
                         "message": f"Added {n} entries from Okta SIG Core 2024"})
     except FileNotFoundError:
         return jsonify({"error": "Okta_SIG_Core.xlsm not found at expected Desktop path"}), 400
+
+
+@app.route("/api/kb/upload-document", methods=["POST"])
+def kb_upload_document():
+    files = request.files.getlist("files") or request.files.getlist("file")
+    if not files or not files[0].filename:
+        return jsonify({"error": "No file provided"}), 400
+
+    f = files[0]
+    if not _allowed(f.filename):
+        return jsonify({"error": "Unsupported file type. Use CSV, XLSX, or DOCX."}), 400
+
+    api_key = db.get_setting("anthropic_api_key")
+    if not api_key:
+        return jsonify({"error": "API key not configured. Go to Settings first."}), 400
+
+    filename, unique, filepath = _save_upload(f)
+    source_name = filename.rsplit(".", 1)[0]   # stem without extension
+
+    event_q = queue.Queue()
+
+    def run():
+        try:
+            agent = KBDirectIngestionAgent(api_key, db, event_q)
+            agent.ingest_file(filepath, source_name)
+        except Exception as e:
+            event_q.put({"type": "error", "message": str(e), "timestamp": 0})
+        finally:
+            event_q.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def generate():
+        while True:
+            ev = event_q.get()
+            if ev is None:
+                break
+            yield f"data: {json.dumps(ev)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/api/kb/stats")

@@ -128,6 +128,8 @@ Upload
   │
   ├─► KB Ingestion Agent → Adds answered Q&A to the knowledge base
   │
+  ├─► KB Direct Ingestion Agent → Upload any CSV/XLSX/XLSM/DOCX directly into KB
+  │
   └─► Demo Prep Agent    → Generates a demo plan from the RFP analysis
 ```
 
@@ -143,6 +145,7 @@ Upload
 | **Scoring Agent** | 🔧 aggregation | — | Overall fit score /5, risk score /5 |
 | **Review Agent** | 🔧 rule-based | — | High-risk ⚠ warnings (stripped on export) |
 | **KB Ingestion Agent** | 🔧 local only | SQLite FTS5 | New KB entries, deduplication |
+| **KB Direct Ingestion Agent** | 🪶/⚡ Haiku (mode detect) + Sonnet (extract) | — | Direct file → KB: auto-detects structured/unstructured, deduplicates |
 | **Demo Prep Agent** | ⚡ claude-sonnet-4-6 | — | Ordered demo sections with steps and talking points |
 
 > ⚡ Sonnet — heavy reasoning & tool use · 🪶 Haiku — fast structured extraction · 🔧 Local — no LLM
@@ -210,6 +213,7 @@ Response codes follow standard vendor RFP notation:
 - **AI semantic search** — Claude matches by intent and context, not just keywords. Expands acronyms, finds related entries
 - **BLUF card** — when AI search is on, Claude generates a 2-4 sentence Bottom Line Up Front synthesising all found entries, shown above results
 - ⊕ Seed buttons: Okta Knowledge (baseline), SIG Core 2024, Confluence
+- **⊕ Upload Document to KB** — drag and drop any CSV, XLSX, XLSM, or DOCX directly onto the KB page to extract Q&A pairs into the knowledge base without creating an RFP project. Structured files (clear Q/A columns) are inserted directly; unstructured files (free text, DOCX, single-column) use Claude Sonnet to extract pairs in batches. Multi-tab XLSX fully scanned, DOCX tables extracted first with paragraph fallback. Exact-match deduplication prevents duplicate entries.
 - Grows with every RFP ingestion
 
 ### Demo Prep — APEX / Command of the Message aligned
@@ -384,6 +388,7 @@ This loads 615 entries from `Okta_SIG_Core.xlsm` into the KB.
 | GET | `/api/demos` | List confirmed demo plans |
 | GET | `/api/kb/search?q=<query>&ai=true` | Search knowledge base |
 | POST | `/api/kb/ingest/<id>` | SSE stream — ingest RFP into KB |
+| POST | `/api/kb/upload-document` | SSE stream — upload file directly to KB (CSV/XLSX/XLSM/DOCX) |
 | POST | `/api/kb/seed` | Seed baseline Okta knowledge |
 | POST | `/api/kb/seed-sig` | Seed from Okta SIG Core 2024 |
 | GET | `/api/kb/stats` | KB entry counts by category |
