@@ -367,6 +367,37 @@ async function deleteRfp(rfpId, ev) {
   await renderHome();
 }
 
+function showRerunOptions(rfpId) {
+  const panel = document.getElementById(`rerun-panel-${rfpId}`);
+  if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+async function rerunRfp(rfpId, mode) {
+  // Hide the options panel
+  const panel = document.getElementById(`rerun-panel-${rfpId}`);
+  if (panel) panel.style.display = 'none';
+
+  const modeLabels = { all: 'all questions', flagged: 'flagged questions', unanswered: 'unanswered + flagged' };
+  toast(`↺ Re-running agents on ${modeLabels[mode] || mode}…`);
+
+  // Show the processing panel
+  const pc = document.getElementById('processing-container');
+  if (pc) pc.style.display = '';
+
+  // Re-use the existing SSE processing display
+  completedAgents = 0;
+  const es = new EventSource(`/api/rfp/${rfpId}/rerun?mode=${mode}`);
+  es.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    handleProcessingEvent(ev, rfpId, es);
+    if (ev.type === 'error') {
+      toast('Re-run failed: ' + ev.message, 'error');
+      es.close();
+    }
+  };
+  es.onerror = () => es.close();
+}
+
 async function exportRfp(rfpId, ev) {
   if (ev) ev.stopPropagation();
   toast('Generating export…');
@@ -429,8 +460,34 @@ function renderRfpDetail(rfp) {
       <div class="rfp-detail-actions">
         ${rfp.status === 'complete' ? `<button class="btn btn-secondary btn-sm" onclick="ingestToKB(${rfp.id})">→ KB</button>` : ''}
         ${rfp.status === 'complete' ? `<button class="btn btn-secondary btn-sm" onclick="generateDemoPrep(${rfp.id})">🎭 Demo Prep</button>` : ''}
+        ${rfp.status === 'complete' ? `<button class="btn btn-secondary btn-sm" onclick="showRerunOptions(${rfp.id})" title="Re-run with updated knowledge base">↺ Re-run</button>` : ''}
         ${rfp.status === 'complete' ? `<button class="btn btn-primary btn-sm" onclick="exportRfp(${rfp.id})">↓ Export</button>` : ''}
         ${rfp.status === 'pending' ? `<button class="btn btn-primary" onclick="startProcessing(${rfp.id}, '${esc(rfp.name)}')">▶ Run Agents</button>` : ''}
+      </div>
+    </div>
+
+    <!-- Re-run options panel (hidden until triggered) -->
+    <div id="rerun-panel-${rfp.id}" style="display:none;margin-bottom:16px">
+      <div class="card" style="border-color:rgba(0,125,193,.3);padding:16px 18px;animation:slideDown .2s ease">
+        <div style="font-size:.8rem;font-weight:700;color:var(--okta-blue-lt);margin-bottom:10px">↺ Re-run Agents — choose scope</div>
+        <div style="font-size:.78rem;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">
+          The agents will use the current knowledge base (${state.kbStats?.total || '640+'}  entries) including any data sources added since this RFP was last processed.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="rerunRfp(${rfp.id},'all')">
+            ↺ All Questions
+            <span style="font-size:.68rem;opacity:.7;display:block;font-weight:400">Reset &amp; reprocess everything</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="rerunRfp(${rfp.id},'flagged')">
+            ⚑ Flagged Only
+            <span style="font-size:.68rem;opacity:.7;display:block;font-weight:400">Re-run questions that need review</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="rerunRfp(${rfp.id},'unanswered')">
+            ○ Unanswered + Flagged
+            <span style="font-size:.68rem;opacity:.7;display:block;font-weight:400">Skip already-answered questions</span>
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('rerun-panel-${rfp.id}').style.display='none'">Cancel</button>
+        </div>
       </div>
     </div>
 

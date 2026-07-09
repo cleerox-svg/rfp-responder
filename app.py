@@ -1146,6 +1146,87 @@ def rerun_question_stream(rfp_id, q_id):
                     headers={"Cache-Control": "no-cache"})
 
 
+@app.route("/api/rfp/<int:rfp_id>/rerun")
+def rerun_rfp_stream(rfp_id):
+    """
+    Re-run agents on an already-processed RFP using the current KB.
+    ?mode=all       — reset and reprocess every question
+    ?mode=flagged   — only reprocess questions that were flagged for review
+    ?mode=unanswered — reprocess flagged + pending questions
+    """
+    rfp = db.get_rfp(rfp_id)
+    if not rfp:
+        return jsonify({"error": "Not found"}), 404
+
+    api_key = db.get_setting("anthropic_api_key")
+    if not api_key:
+        return jsonify({"error": "API key not configured"}), 400
+
+    mode = request.args.get("mode", "all")   # all | flagged | unanswered
+    event_q = queue.Queue()
+
+    def run():
+        try:
+            questions = db.get_questions(rfp_id)
+            reset_statuses = {
+                "all":        lambda q: True,
+                "flagged":    lambda q: q["status"] == "flagged",
+                "unanswered": lambda q: q["status"] in ("flagged", "pending"),
+            }.get(mode, lambda q: True)
+
+            reset_count = 0
+            for q in questions:
+                if reset_statuses(q):
+                    db.update_question(q["id"],
+                        status="pending", answer=None, response_code=None,
+                        confidence=0, needs_review=0, review_reason=None,
+                        fit_score=0, risk_score=0,
+                    )
+                    reset_count += 1
+
+            event_q.put({"type": "agent_progress", "agent": "System",
+                         "message": f"Reset {reset_count} question(s) for re-processing (mode: {mode})…"})
+
+            # Reset RFP status so the pipeline runs cleanly
+            db.update_rfp(rfp_id, status="pending", last_error=None)
+
+            pipeline = AgentPipeline(api_key, db, event_q)
+            docs = db.get_documents(rfp_id)
+
+            if docs:
+                for doc in docs:
+                    # Only re-run docs that have pending questions after reset
+                    pending = [q for q in db.get_questions_by_document(rfp_id, doc["id"])
+                               if q["status"] == "pending"]
+                    if not pending:
+                        continue
+                    filepath = os.path.join(app.config["UPLOAD_FOLDER"], doc["filename"])
+                    pipeline.process_document(rfp_id, doc["id"], filepath)
+                db.sync_rfp_counts(rfp_id)
+            else:
+                filepath = os.path.join(app.config["UPLOAD_FOLDER"], rfp["filename"])
+                pipeline.process_rfp(rfp_id, filepath)
+
+        except Exception as e:
+            msg = str(e)
+            db.update_rfp(rfp_id, status="error", last_error=msg)
+            event_q.put({"type": "error", "message": msg, "timestamp": 0})
+        finally:
+            event_q.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def generate():
+        while True:
+            ev = event_q.get()
+            if ev is None:
+                break
+            yield f"data: {json.dumps(ev)}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache"})
+
+
 @app.route("/api/rfp/<int:rfp_id>/export", methods=["POST"])
 def export_rfp(rfp_id):
     rfp = db.get_rfp(rfp_id)
