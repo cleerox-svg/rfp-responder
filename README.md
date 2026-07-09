@@ -10,20 +10,28 @@ NaughtRFP is an autonomous, multi-agent platform that transforms how Solutions E
 
 **Requirements:** Python 3.11+, access to `llm.atko.ai` (Okta internal LiteLLM proxy)
 
+### Mac / Linux (one command)
+```bash
+bash setup.sh
+# Follow the prompt to add your key to .env, then:
+source venv/bin/activate
+python app.py
+```
+
+### Windows
 ```bash
 # 1. Install dependencies
 py -m pip install flask anthropic openpyxl python-docx
 
-# 2. Configure credentials — copy .env.example to .env and fill in your key
+# 2. Configure credentials
 copy .env.example .env
 # Edit .env: set LITELLM_API_KEY=sk-your-key-here
-# LITELLM_BASE_URL is already set to https://llm.atko.ai
 
-# 3. Start the app
+# 3. Start
 py app.py
-
-# 4. Open http://localhost:5000 in your browser
 ```
+
+Open `http://localhost:5000` in your browser.
 
 **No UI configuration needed** — the app reads `.env` on startup and bootstraps all settings automatically. Go straight to uploading an RFP.
 
