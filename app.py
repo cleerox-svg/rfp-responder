@@ -1331,10 +1331,20 @@ def delete_rfp(rfp_id):
 
 @app.route("/api/kb/search")
 def search_kb():
-    query = request.args.get("q", "").strip()
-    ai = request.args.get("ai", "false") == "true"
-    limit = int(request.args.get("limit", 20))
+    query  = request.args.get("q", "").strip()
+    ai     = request.args.get("ai", "false") == "true"
+    limit  = int(request.args.get("limit", 20))
+    source = request.args.get("source", "").strip()   # NEW
 
+    # Source-scoped listing (no query)
+    if source and not query:
+        return jsonify(db.get_kb_entries_by_source(source, limit=limit))
+
+    # Source-scoped search (query + source)
+    if source and query and not ai:
+        return jsonify(db.search_knowledge_base_by_source(query, source, limit=limit))
+
+    # Existing paths unchanged below
     if not query:
         return jsonify(db.get_kb_entries(limit=limit))
 
@@ -1513,6 +1523,19 @@ def kb_upload_document():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.route("/api/kb/sources")
+def kb_sources():
+    """List all KB sources with entry counts, categories, and source type."""
+    return jsonify(db.get_kb_sources())
+
+
+@app.route("/api/kb/source/<path:source_name>", methods=["DELETE"])
+def delete_kb_source(source_name):
+    """Delete all KB entries from the named source. FTS5-safe two-step delete."""
+    n = db.delete_kb_source(source_name)
+    return jsonify({"deleted": n, "source": source_name})
 
 
 @app.route("/api/kb/stats")

@@ -14,6 +14,7 @@ const state = {
   processing: {},
   kbStats: { total: 0, source_rfps: 0 },
   filterCategory: 'all',
+  kbSourceFilter: null,
 };
 
 /* ── Toast ───────────────────────────────────────────────────────────────── */
@@ -1465,7 +1466,10 @@ async function uploadToKB(file) {
 }
 
 async function renderKB() {
-  const [stats] = await Promise.all([API.get('/api/kb/stats')]);
+  const [stats, sources] = await Promise.all([
+    API.get('/api/kb/stats'),
+    API.get('/api/kb/sources'),
+  ]);
   state.kbStats = stats;
 
   document.getElementById('kb-stats').innerHTML = `
@@ -1473,6 +1477,8 @@ async function renderKB() {
       <strong style="color:var(--text-primary)">${stats.total}</strong> entries from
       <strong style="color:var(--text-primary)">${stats.source_rfps}</strong> RFPs
     </span>`;
+
+  renderKBSources(sources || []);
 
   // Inject upload card above search bar if not already present
   const pageKb = document.getElementById('page-kb');
@@ -1524,6 +1530,171 @@ async function renderKB() {
   await loadKBResults('');
 }
 
+/* ── KB Sources Panel ────────────────────────────────────────────────────── */
+
+function renderKBSources(sources) {
+  if (document.getElementById('kb-sources-panel')) {
+    // Already exists — just refresh the content
+    document.getElementById('kb-sources-inner').innerHTML = renderSourceCards(sources);
+    return;
+  }
+
+  const isOpen = localStorage.getItem('kbSourcesPanelOpen') === 'true';
+  const panel = document.createElement('div');
+  panel.id = 'kb-sources-panel';
+  panel.className = 'kb-sources-panel';
+  panel.innerHTML = `
+    <div class="kb-sources-bar" onclick="toggleKBSources()">
+      <span>📦 Sources</span>
+      <span class="kb-sources-summary">
+        ${sources.length} source${sources.length !== 1 ? 's' : ''}
+        · ${sources.reduce((s, x) => s + x.entry_count, 0)} entries
+      </span>
+      <span id="kb-sources-chevron" class="kb-sources-chevron">${isOpen ? '▴' : '▾'}</span>
+    </div>
+    <div id="kb-sources-inner" class="kb-sources-inner" style="display:${isOpen ? 'flex' : 'none'}">
+      ${renderSourceCards(sources)}
+    </div>
+  `;
+
+  // Insert before the upload card (or before the search bar if no upload card)
+  const searchBar = document.querySelector('#kb .search-bar') || document.querySelector('.search-bar');
+  const uploadCard = document.getElementById('kb-upload-zone')?.closest('.card');
+  const insertBefore = uploadCard || searchBar;
+  if (insertBefore && insertBefore.parentNode) {
+    insertBefore.parentNode.insertBefore(panel, insertBefore);
+  } else {
+    document.getElementById('kb').appendChild(panel);
+  }
+}
+
+function renderSourceCards(sources) {
+  if (!sources.length) return `<div style="padding:16px;color:var(--text-muted)">No sources yet.</div>`;
+  return sources.map(s => {
+    const badge = s.source_type === 'seed'          ? '<span class="badge badge-purple">SEED</span>'
+                : s.source_type === 'rfp_ingest'    ? '<span class="badge badge-blue">RFP</span>'
+                :                                     '<span class="badge badge-green">UPLOAD</span>';
+    const cats = (s.categories || []).slice(0, 3).map(c => `<span class="badge badge-muted">${esc(c)}</span>`).join('');
+    const moreCats = s.categories.length > 3 ? `<span class="badge badge-muted">+${s.categories.length - 3} more</span>` : '';
+    const dateStr = s.last_added ? s.last_added.split(' ')[0] : '';
+
+    // Re-seed button only for seed sources
+    const reseedBtn = s.source_type === 'seed' ? `<button class="btn btn-sm btn-secondary" onclick="reseedSource('${esc(s.source_name)}')" title="Re-seed this source">↺ Re-seed</button>` : '';
+
+    return `
+      <div class="kb-source-card">
+        <div class="kb-source-header">
+          ${badge}
+          <span class="kb-source-name" title="${esc(s.source_name)}">${esc(s.source_name)}</span>
+        </div>
+        <div class="kb-source-count">${s.entry_count} entr${s.entry_count !== 1 ? 'ies' : 'y'}</div>
+        <div class="kb-source-cats">${cats}${moreCats}</div>
+        <div class="kb-source-date">${dateStr}</div>
+        <div class="kb-source-actions">
+          <button class="btn btn-sm btn-secondary" onclick="filterBySource('${esc(s.source_name).replace(/'/g, "\\'")}')">Filter ▸</button>
+          ${reseedBtn}
+          <button class="btn btn-sm btn-danger" onclick="deleteKBSource('${esc(s.source_name).replace(/'/g, "\\'")}', ${s.entry_count})">🗑</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleKBSources() {
+  const inner = document.getElementById('kb-sources-inner');
+  const chevron = document.getElementById('kb-sources-chevron');
+  if (!inner) return;
+  const open = inner.style.display === 'none';
+  inner.style.display = open ? 'flex' : 'none';
+  if (chevron) chevron.textContent = open ? '▴' : '▾';
+  localStorage.setItem('kbSourcesPanelOpen', open ? 'true' : 'false');
+}
+
+function filterBySource(sourceName) {
+  state.kbSourceFilter = sourceName;
+  // Render active filter chip in search bar
+  renderSourceFilterChip();
+  loadKBResults('');
+}
+
+function clearSourceFilter() {
+  state.kbSourceFilter = null;
+  const chip = document.getElementById('kb-source-chip');
+  if (chip) chip.remove();
+  loadKBResults(document.getElementById('kb-search-input')?.value || '');
+}
+
+function renderSourceFilterChip() {
+  // Remove existing chip first
+  const old = document.getElementById('kb-source-chip');
+  if (old) old.remove();
+  if (!state.kbSourceFilter) return;
+  const chip = document.createElement('div');
+  chip.id = 'kb-source-chip';
+  chip.className = 'kb-source-chip';
+  chip.innerHTML = `📦 ${esc(state.kbSourceFilter)} <span onclick="clearSourceFilter()" style="cursor:pointer;margin-left:6px">×</span>`;
+  // Insert after the search bar
+  const searchBar = document.querySelector('#kb .search-bar');
+  if (searchBar) searchBar.insertAdjacentElement('afterend', chip);
+}
+
+async function deleteKBSource(sourceName, count) {
+  // Build a confirmation modal overlay
+  const existing = document.getElementById('kb-delete-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'kb-delete-modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-card card">
+      <h3 style="margin:0 0 12px;font-size:1rem">Delete KB Source</h3>
+      <p style="color:var(--text-secondary);font-size:.875rem;margin:0 0 20px">
+        Delete all <strong>${count}</strong> entries from<br>
+        <strong>${esc(sourceName)}</strong>?<br>
+        <span style="color:var(--accent-red,#e74c3c);font-size:.8rem">This cannot be undone.</span>
+      </p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="document.getElementById('kb-delete-modal').remove()">Cancel</button>
+        <button class="btn btn-danger" id="kb-delete-confirm">Delete ${count} entries</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+  // Close on overlay click
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+  document.getElementById('kb-delete-confirm').onclick = async () => {
+    modal.remove();
+    toast(`Deleting ${count} entries from "${sourceName}"…`);
+    try {
+      const res = await API.del(`/api/kb/source/${encodeURIComponent(sourceName)}`);
+      toast(`Deleted ${res.deleted} entries`, 'success');
+      if (state.kbSourceFilter === sourceName) clearSourceFilter();
+      renderKB();
+    } catch (e) {
+      toast(`Delete failed: ${e.message}`, 'error');
+    }
+  };
+}
+
+async function reseedSource(sourceName) {
+  const endpoints = {
+    'Okta Baseline Knowledge': '/api/kb/seed',
+    'Okta SIG Core 2024':      '/api/kb/seed-sig',
+    'Okta Confluence (Internal)': '/api/kb/seed-confluence',
+  };
+  const endpoint = endpoints[sourceName];
+  if (!endpoint) { toast('Unknown seed source', 'error'); return; }
+  toast(`Re-seeding ${sourceName}…`);
+  try {
+    const res = await API.post(endpoint, {});
+    toast(res.message || `Re-seeded ${sourceName}`, res.inserted > 0 ? 'success' : 'info');
+    renderKB();
+  } catch (e) {
+    toast(`Re-seed failed: ${e.message}`, 'error');
+  }
+}
+
 function renderKBCard(r) {
   return `
     <div class="kb-card">
@@ -1545,7 +1716,8 @@ async function loadKBResults(query, ai = false) {
   const list = document.getElementById('kb-list');
   list.innerHTML = `<div style="color:var(--text-muted);padding:20px;display:flex;align-items:center;gap:8px"><span class="spin">⟳</span> ${ai ? 'AI searching…' : 'Searching…'}</div>`;
 
-  const url = `/api/kb/search?q=${encodeURIComponent(query)}&ai=${ai}&limit=30`;
+  const sourceParam = state.kbSourceFilter ? `&source=${encodeURIComponent(state.kbSourceFilter)}` : '';
+  const url = `/api/kb/search?q=${encodeURIComponent(query)}&ai=${ai}&limit=30${sourceParam}`;
   const data = await API.get(url);
 
   // AI search returns {bluf, results, query}; plain search returns array

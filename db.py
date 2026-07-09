@@ -443,6 +443,123 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    # ── KB Sources Management ─────────────────────────────────────────────────
+
+    def get_kb_sources(self) -> list[dict]:
+        """
+        Aggregate knowledge_base entries by source document/origin.
+        Infers source_type: 'seed' for the three known seed origins,
+        'rfp_ingest' if source matches an rfps.name, 'direct_upload' otherwise.
+        """
+        _SEED_NAMES = {
+            "Okta Baseline Knowledge",
+            "Okta SIG Core 2024",
+            "Okta Confluence (Internal)",
+        }
+        with self.conn() as c:
+            rows = c.execute("""
+                SELECT
+                    source_rfp_name                    AS source_name,
+                    COUNT(*)                           AS entry_count,
+                    GROUP_CONCAT(DISTINCT category)    AS categories_raw,
+                    MAX(created_at)                    AS last_added,
+                    MIN(created_at)                    AS first_added
+                FROM knowledge_base
+                WHERE source_rfp_name IS NOT NULL
+                GROUP BY source_rfp_name
+                ORDER BY entry_count DESC
+            """).fetchall()
+
+            rfp_names = {
+                r[0] for r in c.execute("SELECT name FROM rfps").fetchall()
+            }
+
+        result = []
+        for row in rows:
+            d = dict(row)
+            name = d["source_name"]
+            cats_raw = d.pop("categories_raw") or ""
+            # Split, deduplicate, truncate to 10
+            seen = []
+            for cat in cats_raw.split(","):
+                cat = cat.strip()
+                if cat and cat not in seen:
+                    seen.append(cat)
+            d["categories"] = seen[:10]
+            if name in _SEED_NAMES:
+                d["source_type"] = "seed"
+            elif name in rfp_names:
+                d["source_type"] = "rfp_ingest"
+            else:
+                d["source_type"] = "direct_upload"
+            result.append(d)
+        return result
+
+    def get_kb_entries_by_source(self, source_name: str, limit: int = 50, offset: int = 0) -> list[dict]:
+        """Return KB entries belonging to one source, ordered by use_count desc."""
+        with self.conn() as c:
+            rows = c.execute(
+                """SELECT * FROM knowledge_base
+                   WHERE source_rfp_name = ?
+                   ORDER BY use_count DESC, created_at DESC
+                   LIMIT ? OFFSET ?""",
+                (source_name, limit, offset),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_kb_source(self, source_name: str) -> int:
+        """
+        Delete all KB entries from the given source.
+        Manually cleans the kb_search FTS5 content table before deleting from
+        knowledge_base — there are no automatic triggers maintaining sync.
+        Returns the number of entries deleted.
+        """
+        with self.conn() as c:
+            ids = [r[0] for r in c.execute(
+                "SELECT id FROM knowledge_base WHERE source_rfp_name = ?",
+                (source_name,),
+            ).fetchall()]
+            if not ids:
+                return 0
+            placeholders = ",".join("?" * len(ids))
+            # FTS5 content table must be cleaned first — deleting base rows first
+            # leaves orphaned FTS index entries that corrupt future searches.
+            c.execute(f"DELETE FROM kb_search WHERE rowid IN ({placeholders})", ids)
+            c.execute("DELETE FROM knowledge_base WHERE source_rfp_name = ?", (source_name,))
+            return len(ids)
+
+    def search_knowledge_base_by_source(self, query: str, source_name: str, limit: int = 20) -> list[dict]:
+        """FTS5 search scoped to a single source_rfp_name."""
+        variants = self._build_fts_queries(query)
+        with self.conn() as c:
+            for fts_q in variants:
+                try:
+                    rows = c.execute(
+                        """SELECT kb.*
+                           FROM kb_search
+                           JOIN knowledge_base kb ON kb.id = kb_search.rowid
+                           WHERE kb_search MATCH ? AND kb.source_rfp_name = ?
+                           ORDER BY rank
+                           LIMIT ?""",
+                        (fts_q, source_name, limit),
+                    ).fetchall()
+                    if rows:
+                        return [dict(r) for r in rows]
+                except Exception:
+                    continue
+            # LIKE fallback
+            pattern = f"%{query.strip()[:50]}%"
+            try:
+                rows = c.execute(
+                    """SELECT * FROM knowledge_base
+                       WHERE source_rfp_name = ? AND (question LIKE ? OR answer LIKE ?)
+                       ORDER BY use_count DESC LIMIT ?""",
+                    (source_name, pattern, pattern, limit),
+                ).fetchall()
+                return [dict(r) for r in rows]
+            except Exception:
+                return []
+
     def get_kb_stats(self):
         with self.conn() as c:
             total = c.execute("SELECT COUNT(*) AS n FROM knowledge_base").fetchone()["n"]

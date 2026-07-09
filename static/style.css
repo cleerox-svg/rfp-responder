@@ -1557,6 +1557,121 @@ a:hover { color: var(--text-primary); }
   margin-top: 4px;
 }
 
+/* ── KB Sources Panel ─────────────────────────────────────────────────────── */
+.kb-sources-panel {
+  margin-bottom: 16px;
+  border-radius: var(--radius, 10px);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+.kb-sources-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  user-select: none;
+  font-size: .875rem;
+  color: var(--text-secondary);
+  transition: background .15s;
+}
+.kb-sources-bar:hover { background: var(--bg-hover, rgba(255,255,255,.04)); }
+
+.kb-sources-summary { flex: 1; }
+.kb-sources-chevron { font-size: .75rem; color: var(--text-muted); }
+
+.kb-sources-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.kb-source-card {
+  flex: 0 0 220px;
+  max-width: 260px;
+  background: var(--bg-elevated, var(--bg-card));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--depth-raised);
+}
+
+.kb-source-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kb-source-name {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.kb-source-count {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-blue, #007DC1);
+}
+
+.kb-source-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 22px;
+}
+
+.kb-source-date { font-size: .72rem; color: var(--text-muted); }
+
+.kb-source-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* Active source filter chip */
+.kb-source-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  margin: 8px 0;
+  background: rgba(0, 125, 193, .15);
+  border: 1px solid var(--accent-blue, #007DC1);
+  border-radius: 20px;
+  font-size: .8rem;
+  color: var(--accent-blue, #007DC1);
+}
+
+/* Delete confirmation modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-card {
+  max-width: 380px;
+  width: 90%;
+  padding: 24px;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 700px) {
   #sidebar { width: var(--sidebar-closed); }

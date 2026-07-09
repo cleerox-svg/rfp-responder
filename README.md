@@ -213,6 +213,7 @@ Response codes follow standard vendor RFP notation:
 - **AI semantic search** — Claude matches by intent and context, not just keywords. Expands acronyms, finds related entries
 - **BLUF card** — when AI search is on, Claude generates a 2-4 sentence Bottom Line Up Front synthesising all found entries, shown above results
 - ⊕ Seed buttons: Okta Knowledge (baseline), SIG Core 2024, Confluence
+- **📦 Sources panel** — collapsible panel above the search bar listing every KB source with entry count, categories, and type badge (SEED / RFP / UPLOAD). Each source card has a **Filter ▸** button to scope search to that source, a **↺ Re-seed** button (seed sources only), and a 🗑 delete button with confirmation modal to remove all entries from that source.
 - **⊕ Upload Document to KB** — drag and drop any CSV, XLSX, XLSM, DOCX, or PDF directly onto the KB page to extract Q&A pairs into the knowledge base without creating an RFP project. Structured files (clear Q/A columns) are inserted directly; unstructured files (free text, DOCX, PDF, single-column) use Claude Sonnet to extract pairs in batches. Multi-tab XLSX fully scanned with merged-cell resolution, DOCX and PDF tables extracted first with paragraph fallback. Exact-match deduplication prevents duplicate entries.
 - Grows with every RFP ingestion
 
