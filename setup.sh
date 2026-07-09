@@ -17,7 +17,7 @@ fi
 # Activate and install
 echo "  Installing dependencies..."
 source venv/bin/activate
-pip install --quiet flask anthropic openpyxl
+pip install --quiet flask anthropic openpyxl python-docx
 
 # Copy .env if not present
 if [ ! -f ".env" ] && [ -f ".env.example" ]; then

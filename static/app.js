@@ -216,7 +216,7 @@ function initUpload() {
   zone.addEventListener('drop', e => {
     e.preventDefault();
     zone.classList.remove('drag-over');
-    const files = [...e.dataTransfer.files].filter(f => /\.(csv|xlsx|xls)$/i.test(f.name));
+    const files = [...e.dataTransfer.files].filter(f => /\.(csv|xlsx|xls|docx)$/i.test(f.name));
     if (files.length) { showPending(files); uploadFiles(files); }
   });
 
@@ -471,7 +471,7 @@ async function loadDocumentList(rfpId) {
       <div style="display:flex;gap:6px">
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
           + Add Document
-          <input type="file" accept=".csv,.xlsx,.xls" multiple style="display:none"
+          <input type="file" accept=".csv,.xlsx,.xls,.docx" multiple style="display:none"
             onchange="addDocumentsToRfp(${rfpId}, this.files)">
         </label>
         ${docs.some(d => d.status === 'complete') ? `
