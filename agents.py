@@ -47,7 +47,18 @@ def _parse_docx_rows(filepath: str) -> list[dict]:
     try:
         doc = Document(filepath)
 
+        # Patterns that identify scoring/rubric/instruction tables to skip
+        _SKIP_SECTION_RE = re.compile(
+            r'(excellent response|good response|poor.*(incomplete|response)|'
+            r'failed.*response|scoring rubric|general instructions|'
+            r'standard technical|how to use|table of contents)',
+            re.IGNORECASE
+        )
+
         # ── Strategy 1: Tables ─────────────────────────────────────────────────
+        # All table rows are normalised to {"requirement": text, "section": header}
+        # so the Parser Agent always finds the same column name regardless of how
+        # many tables the document contains or what their headers say.
         for table in doc.tables:
             table_rows = []
             for row in table.rows:
@@ -57,26 +68,42 @@ def _parse_docx_rows(filepath: str) -> list[dict]:
             if not table_rows:
                 continue
 
-            # Detect whether first row is a header (heuristic: cells are short, no digits-only)
+            # Detect whether first row is a header
             first = table_rows[0]
             looks_like_header = all(
                 len(c) < 80 and not c.isdigit() for c in first if c
             )
 
             if looks_like_header and len(table_rows) > 1:
-                headers = [c if c else f"col_{i}" for i, c in enumerate(first)]
+                section_name = " | ".join(c for c in first if c)[:120]
                 data_rows = table_rows[1:]
             else:
-                headers = [f"col_{i}" for i in range(len(first))]
+                section_name = ""
                 data_rows = table_rows
 
+            # Skip entire tables that look like scoring rubrics or instructions
+            if _SKIP_SECTION_RE.search(section_name):
+                continue
+
             for cells in data_rows:
-                if not any(c for c in cells):
+                # Find the cell with the most text — that's the requirement
+                req_text = max(cells, key=lambda c: len(c)) if cells else ""
+                # Secondary cells as context
+                other = [c for c in cells if c and c != req_text]
+
+                if not req_text or len(req_text) < 10:
                     continue
-                row_dict = {
-                    headers[i]: cells[i] if i < len(cells) else ""
-                    for i in range(len(headers))
+
+                # Skip cells that are themselves scoring labels
+                if _SKIP_SECTION_RE.search(req_text[:80]):
+                    continue
+
+                row_dict: dict = {
+                    "requirement": req_text,
+                    "section":     section_name,
                 }
+                if other:
+                    row_dict["context"] = " | ".join(other[:2])
                 rows.append(row_dict)
 
         # ── Strategy 2: Smart paragraph extraction ────────────────────────────
@@ -853,19 +880,20 @@ Identify columns. Respond with JSON:
                 len(str(r.get(h, "") or "")) for r in raw_rows[:10]
             ))
 
-        # For DOCX rows from _parse_docx_rows, "requirement" and "text" are the
-        # natural requirement columns.  If the Parser Agent missed them (e.g.
-        # because it saw "requirement" as a generic label), override here.
-        if is_docx and req_col not in headers_list:
-            for preferred in ("requirement", "text"):
-                if preferred in headers_list:
-                    req_col = preferred
-                    break
-
-        # When DOCX rows carry a "category" column, prefer it over the Parser
-        # Agent's detection (which may have returned null for paragraph-based docs).
-        if is_docx and not cat_col and "category" in headers_list:
-            cat_col = "category"
+        # DOCX rows are now always normalised to {"requirement": ..., "section": ...}
+        # by _parse_docx_rows.  Override whatever Claude returned to guarantee we
+        # use the right column — the Agent may still see "requirement" as generic.
+        if is_docx:
+            if "requirement" in headers_list:
+                req_col = "requirement"
+            elif "text" in headers_list:
+                req_col = "text"
+            # Use "section" as the category (table header) when present
+            if not cat_col:
+                if "section" in headers_list:
+                    cat_col = "section"
+                elif "category" in headers_list:
+                    cat_col = "category"
 
         # Numbered-item pattern for DOCX rows: don't filter these out even if
         # they are short — "1. Provide proof of insurance" is 34 chars but valid.
