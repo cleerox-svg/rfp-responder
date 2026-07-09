@@ -376,6 +376,65 @@ class Database:
 
         return list(seen.values())[:limit]
 
+    def search_knowledge_base_ranked(self, query: str, limit: int = 10) -> list[dict]:
+        """
+        Like search_knowledge_base() but includes fts_rank (1-based) and fts_score
+        fields on each result, enabling Reciprocal Rank Fusion in the caller.
+        Uses the same multi-strategy FTS5 fallback chain.
+
+        fts_score is the raw SQLite bm25() value — negative, more negative = more
+        relevant. ORDER BY fts_score ASC puts the best results first.
+        LIKE fallback rows get fts_score=None.
+        """
+        if not query or not query.strip():
+            results = self.get_kb_entries(limit=limit)
+            for i, r in enumerate(results):
+                r["fts_rank"] = i + 1
+                r["fts_score"] = None
+            return results
+
+        variants = self._build_fts_queries(query)
+        with self.conn() as c:
+            for fts_q in variants:
+                try:
+                    rows = c.execute(
+                        """SELECT kb.*, bm25(kb_search) AS fts_score
+                           FROM kb_search
+                           JOIN knowledge_base kb ON kb.id = kb_search.rowid
+                           WHERE kb_search MATCH ?
+                           ORDER BY fts_score
+                           LIMIT ?""",
+                        (fts_q, limit),
+                    ).fetchall()
+                    if rows:
+                        results = [dict(r) for r in rows]
+                        for i, r in enumerate(results):
+                            r["fts_rank"] = i + 1
+                        return results
+                except Exception:
+                    continue
+
+            # LIKE fallback (no FTS score available — assign synthetic rank)
+            if len(query.strip()) >= 3:
+                pattern = f"%{query.strip()[:50]}%"
+                try:
+                    rows = c.execute(
+                        """SELECT *, NULL AS fts_score FROM knowledge_base
+                           WHERE question LIKE ? OR answer LIKE ?
+                           ORDER BY use_count DESC LIMIT ?""",
+                        (pattern, pattern, limit),
+                    ).fetchall()
+                    if rows:
+                        results = [dict(r) for r in rows]
+                        for i, r in enumerate(results):
+                            r["fts_rank"] = i + 1
+                            r["fts_score"] = r.get("fts_score")  # None for LIKE results
+                        return results
+                except Exception:
+                    pass
+
+        return []
+
     def get_kb_entries(self, limit=50, offset=0):
         with self.conn() as c:
             rows = c.execute(

@@ -21,7 +21,7 @@ python app.py
 ### Windows
 ```bash
 # 1. Install dependencies
-py -m pip install flask anthropic openpyxl python-docx
+py -m pip install flask anthropic openpyxl python-docx pdfplumber
 
 # 2. Configure credentials
 copy .env.example .env
@@ -90,7 +90,7 @@ Enterprise RFPs for identity and governance platforms contain **50–300+ techni
 
 ## What It Does
 
-1. **Upload** a customer RFP in CSV or XLSX format
+1. **Upload** a customer RFP in CSV, XLSX, DOCX, or PDF format
 2. **Agents run autonomously** — parsing structure, categorising requirements, researching answers from a 640+ entry knowledge base and live Okta web sources, scoring fit/risk, and quality-checking every response
 3. **Review** answers in the UI with confidence scores, source citations, and flagged items
 4. **Export** back to the original file format with Vendor Response and Comments columns populated
@@ -128,7 +128,7 @@ Upload
   │
   ├─► KB Ingestion Agent → Adds answered Q&A to the knowledge base
   │
-  ├─► KB Direct Ingestion Agent → Upload any CSV/XLSX/XLSM/DOCX directly into KB
+  ├─► KB Direct Ingestion Agent → Upload any CSV/XLSX/XLSM/DOCX/PDF directly into KB
   │
   └─► Demo Prep Agent    → Generates a demo plan from the RFP analysis
 ```
@@ -209,11 +209,11 @@ Response codes follow standard vendor RFP notation:
 
 ### Knowledge Base
 - **657+ entries** across three sources: Okta SIG Core 2024 (615), internal Confluence compliance docs (15), hand-crafted baseline (25+)
-- **Multi-strategy search** — phrase match → prefix-AND → prefix-OR → LIKE fallback. Handles single words, fragments, acronyms (DR, MFA, SoD, BCP), and full sentences
+- **Hybrid RRF search** — Reciprocal Rank Fusion combines FTS5 keyword results (BM25-equivalent) with per-keyword broadened results. Phrase match → prefix-AND → prefix-OR → LIKE fallback per pass. Handles single words, fragments, acronyms (DR, MFA, SoD, BCP), and full sentences
 - **AI semantic search** — Claude matches by intent and context, not just keywords. Expands acronyms, finds related entries
 - **BLUF card** — when AI search is on, Claude generates a 2-4 sentence Bottom Line Up Front synthesising all found entries, shown above results
 - ⊕ Seed buttons: Okta Knowledge (baseline), SIG Core 2024, Confluence
-- **⊕ Upload Document to KB** — drag and drop any CSV, XLSX, XLSM, or DOCX directly onto the KB page to extract Q&A pairs into the knowledge base without creating an RFP project. Structured files (clear Q/A columns) are inserted directly; unstructured files (free text, DOCX, single-column) use Claude Sonnet to extract pairs in batches. Multi-tab XLSX fully scanned, DOCX tables extracted first with paragraph fallback. Exact-match deduplication prevents duplicate entries.
+- **⊕ Upload Document to KB** — drag and drop any CSV, XLSX, XLSM, DOCX, or PDF directly onto the KB page to extract Q&A pairs into the knowledge base without creating an RFP project. Structured files (clear Q/A columns) are inserted directly; unstructured files (free text, DOCX, PDF, single-column) use Claude Sonnet to extract pairs in batches. Multi-tab XLSX fully scanned with merged-cell resolution, DOCX and PDF tables extracted first with paragraph fallback. Exact-match deduplication prevents duplicate entries.
 - Grows with every RFP ingestion
 
 ### Demo Prep — APEX / Command of the Message aligned
@@ -297,7 +297,7 @@ When the KB doesn't have sufficient context, the Research Agent fetches live con
 
 ### Install
 ```bash
-py -m pip install flask anthropic openpyxl python-docx
+py -m pip install flask anthropic openpyxl python-docx pdfplumber
 ```
 
 ### Run
@@ -388,7 +388,7 @@ This loads 615 entries from `Okta_SIG_Core.xlsm` into the KB.
 | GET | `/api/demos` | List confirmed demo plans |
 | GET | `/api/kb/search?q=<query>&ai=true` | Search knowledge base |
 | POST | `/api/kb/ingest/<id>` | SSE stream — ingest RFP into KB |
-| POST | `/api/kb/upload-document` | SSE stream — upload file directly to KB (CSV/XLSX/XLSM/DOCX) |
+| POST | `/api/kb/upload-document` | SSE stream — upload file directly to KB (CSV/XLSX/XLSM/DOCX/PDF) |
 | POST | `/api/kb/seed` | Seed baseline Okta knowledge |
 | POST | `/api/kb/seed-sig` | Seed from Okta SIG Core 2024 |
 | GET | `/api/kb/stats` | KB entry counts by category |
@@ -430,7 +430,7 @@ This loads 615 entries from `Okta_SIG_Core.xlsm` into the KB.
 ```
 rfp-responder/
 ├── app.py              Flask backend — routes, SSE, multi-doc, re-run, .env bootstrap
-├── agents.py           All 9 agents + APEX/CoM demo prep + multi-tab XLSX/DOCX parser
+├── agents.py           All 9 agents + APEX/CoM demo prep + multi-tab XLSX/DOCX/PDF parser
 ├── db.py               SQLite wrapper — thread-local connections, FTS5, multi-doc
 ├── export_handler.py   Multi-sheet CSV/XLSX/XLSM export (VBA macros preserved)
 ├── seed_kb.py          25 hand-crafted Okta baseline Q&A pairs

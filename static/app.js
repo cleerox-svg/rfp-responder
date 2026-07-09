@@ -216,7 +216,7 @@ function initUpload() {
   zone.addEventListener('drop', e => {
     e.preventDefault();
     zone.classList.remove('drag-over');
-    const files = [...e.dataTransfer.files].filter(f => /\.(csv|xlsx|xls|xlsm|docx)$/i.test(f.name));
+    const files = [...e.dataTransfer.files].filter(f => /\.(csv|xlsx|xls|xlsm|docx|pdf)$/i.test(f.name));
     if (files.length) { showPending(files); uploadFiles(files); }
   });
 
@@ -528,7 +528,7 @@ async function loadDocumentList(rfpId) {
       <div style="display:flex;gap:6px">
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
           + Add Document
-          <input type="file" accept=".csv,.xlsx,.xls,.xlsm,.docx" multiple style="display:none"
+          <input type="file" accept=".csv,.xlsx,.xls,.xlsm,.docx,.pdf" multiple style="display:none"
             onchange="addDocumentsToRfp(${rfpId}, this.files)">
         </label>
         ${docs.some(d => d.status === 'complete') ? `
@@ -1484,11 +1484,11 @@ async function renderKB() {
     uploadCard.innerHTML = `
       <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <h3 style="margin:0;font-size:1rem;color:var(--text-primary)">Upload Document to Knowledge Base</h3>
-        <span style="font-size:.8rem;color:var(--text-muted)">CSV · XLSX · XLSM · DOCX</span>
+        <span style="font-size:.8rem;color:var(--text-muted)">CSV · XLSX · XLSM · DOCX · PDF</span>
       </div>
       <div class="card-body">
         <div id="kb-upload-zone" class="upload-zone" style="min-height:80px;padding:20px;text-align:center;cursor:default">
-          <input type="file" id="kb-upload-input" accept=".csv,.xlsx,.xls,.xlsm,.docx" style="display:none">
+          <input type="file" id="kb-upload-input" accept=".csv,.xlsx,.xls,.xlsm,.docx,.pdf" style="display:none">
           <div style="color:var(--text-muted);font-size:.875rem">
             Drop a file here or
             <button class="btn btn-primary btn-sm" onclick="document.getElementById('kb-upload-input').click()">

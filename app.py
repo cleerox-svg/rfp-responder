@@ -74,7 +74,7 @@ if _saved_base_url:
 
 # .doc (legacy binary) is intentionally excluded — it requires antiword/LibreOffice.
 # Only .docx (Office Open XML) is supported via python-docx.
-ALLOWED = {"csv", "xlsx", "xls", "xlsm", "docx"}
+ALLOWED = {"csv", "xlsx", "xls", "xlsm", "docx", "pdf"}
 
 RISKY_KEYWORDS = [
     "sla", "uptime", "99.9", "99.99", "penalty", "indemnif", "liability",
@@ -135,19 +135,57 @@ def quick_scan(filepath):
             for ws in wb.worksheets:
                 if ws.max_row < 2:
                     continue
+                # Build merge map for this sheet so non-anchor cells get anchor value
+                merge_vals = {}
+                for rng in ws.merged_cells.ranges:
+                    anchor = ws.cell(rng.min_row, rng.min_col).value
+                    for r in range(rng.min_row, rng.max_row + 1):
+                        for c in range(rng.min_col, rng.max_col + 1):
+                            merge_vals[(r, c)] = anchor
                 headers = None
-                for row in ws.iter_rows(values_only=True):
-                    if not any(c for c in row if c is not None):
+                for row in ws.iter_rows(values_only=False):
+                    # Resolve merged cells
+                    resolved = [merge_vals.get((cell.row, cell.column), cell.value) for cell in row]
+                    if not any(c for c in resolved if c is not None):
                         continue
                     if headers is None:
-                        headers = [str(c).strip() if c else f"col_{i}" for i, c in enumerate(row)]
+                        headers = [str(c).strip() if c else f"col_{i}" for i, c in enumerate(resolved)]
                     else:
-                        rows.append({headers[i]: row[i] for i in range(min(len(headers), len(row)))})
+                        rows.append({headers[i]: resolved[i] for i in range(min(len(headers), len(resolved)))})
         elif ext == "docx":
             # Build synthetic row dicts from text blocks for uniform downstream handling
             blocks = _extract_docx_text_blocks(filepath)
             for block in blocks:
                 rows.append({"text": block})
+        elif ext == "pdf":
+            try:
+                import pdfplumber
+                with pdfplumber.open(filepath) as pdf:
+                    for page in pdf.pages:
+                        # Extract tables first
+                        tables = page.extract_tables() or []
+                        for table in tables:
+                            if not table:
+                                continue
+                            first = [str(c or "").strip() for c in table[0]]
+                            looks_like_header = all(len(c) < 100 and not c.isdigit() for c in first if c)
+                            data_rows = table[1:] if looks_like_header and len(table) > 1 else table
+                            for cells in data_rows:
+                                cell_texts = [str(c or "").strip() for c in cells]
+                                req_text = max(cell_texts, key=len) if cell_texts else ""
+                                if req_text and len(req_text) > 10:
+                                    rows.append({"text": req_text})
+                        # Text fallback if no tables on page
+                        if not tables:
+                            text = page.extract_text() or ""
+                            for line in text.splitlines():
+                                line = line.strip()
+                                if line and len(line) > 20:
+                                    rows.append({"text": line})
+            except ImportError:
+                rows = []
+            except Exception:
+                rows = []
     except Exception:
         return {}, {}
 
@@ -155,8 +193,8 @@ def quick_scan(filepath):
         return {}, {}
 
     keys = list(rows[0].keys())
-    # For DOCX rows the only column is "text"; skip named-column detection
-    if ext == "docx":
+    # For DOCX/PDF rows the only column is "text"; skip named-column detection
+    if ext in ("docx", "pdf"):
         req_col = "text"
         priority_col = None
         category_col = None
@@ -1441,7 +1479,7 @@ def kb_upload_document():
 
     f = files[0]
     if not _allowed(f.filename):
-        return jsonify({"error": "Unsupported file type. Use CSV, XLSX, or DOCX."}), 400
+        return jsonify({"error": "Unsupported file type. Use CSV, XLSX, DOCX, or PDF."}), 400
 
     api_key = db.get_setting("anthropic_api_key")
     if not api_key:

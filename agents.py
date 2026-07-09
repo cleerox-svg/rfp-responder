@@ -188,6 +188,70 @@ def _parse_docx_rows(filepath: str) -> list[dict]:
 
     return rows
 
+def _parse_pdf_rows(filepath: str) -> list[dict]:
+    """
+    Parse a PDF file into row dicts for the agent pipeline.
+    Strategy: tables first (via pdfplumber), then text paragraphs as fallback.
+    Requires pdfplumber: pip install pdfplumber
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        return []
+
+    rows: list[dict] = []
+    try:
+        with pdfplumber.open(filepath) as pdf:
+            current_section = "General"
+
+            for page in pdf.pages:
+                # Strategy 1: extract tables from this page
+                tables = page.extract_tables()
+                for table in (tables or []):
+                    if not table:
+                        continue
+                    # First row as header if it looks like one
+                    first = [str(c or "").strip() for c in table[0]]
+                    looks_like_header = all(
+                        len(c) < 100 and not c.isdigit() for c in first if c
+                    )
+                    if looks_like_header and len(table) > 1:
+                        section_name = " | ".join(c for c in first if c)[:120]
+                        data_rows = table[1:]
+                    else:
+                        section_name = current_section
+                        data_rows = table
+
+                    for cells in data_rows:
+                        cell_texts = [str(c or "").strip() for c in cells]
+                        req_text = max(cell_texts, key=lambda c: len(c)) if cell_texts else ""
+                        if not req_text or len(req_text) < 10:
+                            continue
+                        other = [c for c in cell_texts if c and c != req_text]
+                        row_dict: dict = {"requirement": req_text, "section": section_name}
+                        if other:
+                            row_dict["context"] = " | ".join(other[:2])
+                        rows.append(row_dict)
+
+                # Strategy 2: text paragraphs fallback (only if no tables found on page)
+                if not (tables or []):
+                    text = page.extract_text() or ""
+                    for line in text.splitlines():
+                        line = line.strip()
+                        if not line or len(line) < 20:
+                            continue
+                        # Detect section headings: short all-caps or title-case lines
+                        if len(line) < 80 and (line.isupper() or line.istitle()):
+                            current_section = line
+                            continue
+                        rows.append({"requirement": line, "section": current_section})
+
+    except Exception:
+        pass
+
+    return rows
+
+
 # In-process page cache: url → (fetched_at_epoch, content)
 _PAGE_CACHE: dict[str, tuple[float, str]] = {}
 _PAGE_CACHE_TTL: int = 3600
@@ -456,6 +520,59 @@ def _do_web_search(query: str, api_key: str, base_url: str | None) -> str:
         return combined[:800]
 
 
+def _rrf_score(rank: int, k: int = 60) -> float:
+    """Reciprocal Rank Fusion score. Standard k=60 per the Cormack et al. 2009 paper."""
+    return 1.0 / (k + rank)
+
+
+def _hybrid_kb_search(db, query: str, limit: int = 10) -> list[dict]:
+    """
+    Hybrid KB search using Reciprocal Rank Fusion over two retrieval passes:
+    1. FTS5 multi-strategy (BM25-equivalent) — positional keyword ranking
+    2. LIKE fallback broadened results — catches semantic neighbours missed by FTS5
+
+    RRF fuses rank positions from both passes. No embeddings needed.
+    Results are deduplicated by id before returning.
+    """
+    # Pass 1: FTS5 ranked results (up to limit*2 for better fusion coverage)
+    fts_results = db.search_knowledge_base(query, limit=limit * 2)
+
+    # Pass 2: broader search with individual keywords for semantic coverage
+    # Split query and search each meaningful word separately, collect unique hits
+    words = [w.strip('",;:.()[]') for w in query.split() if len(w.strip('",;:.()[]')) >= 4]
+    keyword_results = []
+    seen_ids = {r["id"] for r in fts_results}
+    for word in words[:4]:  # limit to 4 keywords to avoid excess API calls
+        hits = db.search_knowledge_base(word, limit=5)
+        for h in hits:
+            if h["id"] not in seen_ids:
+                seen_ids.add(h["id"])
+                keyword_results.append(h)
+
+    # Build rank maps
+    fts_ranks = {r["id"]: i + 1 for i, r in enumerate(fts_results)}
+    kw_ranks  = {r["id"]: i + 1 for i, r in enumerate(keyword_results)}
+
+    # Collect all unique candidates preserving insertion order
+    all_ids = list(dict.fromkeys(
+        [r["id"] for r in fts_results] + [r["id"] for r in keyword_results]
+    ))
+    id_to_entry = {r["id"]: r for r in fts_results + keyword_results}
+
+    # RRF score each candidate
+    scored = []
+    for rid in all_ids:
+        score = 0.0
+        if rid in fts_ranks:
+            score += _rrf_score(fts_ranks[rid])
+        if rid in kw_ranks:
+            score += _rrf_score(kw_ranks[rid])
+        scored.append((score, rid))
+
+    scored.sort(key=lambda x: -x[0])
+    return [id_to_entry[rid] for _, rid in scored[:limit]]
+
+
 def _record(db, rfp_id, agent, resp):
     """Record token usage from an Anthropic response object."""
     try:
@@ -563,12 +680,12 @@ class AgentPipeline:
             self.emit("agent_complete", "Analysis Agent",
                       "Requirements categorized and mapped to Okta product areas")
 
-            # ── 3. Research Agent: bulk KB pre-fetch ──────────────────────────
+            # ── 3. Research Agent: bulk KB pre-fetch (hybrid RRF retrieval) ──────
             self.emit("agent_start", "Research Agent",
                       f"Pre-fetching KB context for all {len(questions)} requirements...")
             kb_cache: dict[int, list] = {}
             for q in questions:
-                hits = self.db.search_knowledge_base(q["question_text"][:150], limit=3)
+                hits = _hybrid_kb_search(self.db, q["question_text"][:150], limit=3)
                 if hits:
                     kb_cache[q["id"]] = hits
             kb_hits = sum(1 for v in kb_cache.values() if v)
@@ -688,10 +805,10 @@ class AgentPipeline:
 
             questions = self._analyze_questions(rfp_id, questions)
 
-            self.emit("agent_start", "Research Agent", "Pre-fetching KB context...")
+            self.emit("agent_start", "Research Agent", "Pre-fetching KB context (hybrid RRF)...")
             kb_cache: dict[int, list] = {}
             for q in questions:
-                hits = self.db.search_knowledge_base(q["question_text"][:150], limit=3)
+                hits = _hybrid_kb_search(self.db, q["question_text"][:150], limit=3)
                 if hits:
                     kb_cache[q["id"]] = hits
 
@@ -817,17 +934,40 @@ class AgentPipeline:
             self.emit("agent_progress", "Parser Agent",
                       f"Scanning {len(candidate_sheets)}/{len(sheets_found)} sheet(s): {', '.join(candidate_sheets[:5])}")
 
+            def _build_merge_map(ws) -> dict:
+                """
+                Build merged-cell value map: (row_idx, col_idx) -> actual value.
+                openpyxl returns None for non-anchor cells in a merge; this resolves
+                every cell in a range to the top-left (anchor) cell's value.
+                """
+                merge_map = {}
+                for merge_range in ws.merged_cells.ranges:
+                    # Get the anchor cell's value (top-left of merge)
+                    anchor_val = ws.cell(merge_range.min_row, merge_range.min_col).value
+                    for row_idx in range(merge_range.min_row, merge_range.max_row + 1):
+                        for col_idx in range(merge_range.min_col, merge_range.max_col + 1):
+                            merge_map[(row_idx, col_idx)] = anchor_val
+                return merge_map
+
             for sheet_name in candidate_sheets:
                 ws = wb[sheet_name]
+                merge_map = _build_merge_map(ws)
                 headers = None
-                for row in ws.iter_rows(values_only=True):
-                    if not any(c for c in row if c is not None):
+                # values_only=False: we need Cell objects for row/col coordinates
+                # so we can resolve merged-cell values via merge_map.
+                for row in ws.iter_rows(values_only=False):
+                    resolved = [
+                        merge_map.get((cell.row, cell.column), cell.value)
+                        for cell in row
+                    ]
+                    if not any(c for c in resolved if c is not None):
                         continue
                     if headers is None:
                         headers = [str(c).strip() if c is not None else f"col_{i}"
-                                   for i, c in enumerate(row)]
+                                   for i, c in enumerate(resolved)]
                     else:
-                        row_dict = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+                        row_dict = {headers[i]: resolved[i]
+                                    for i in range(min(len(headers), len(resolved)))}
                         row_dict["_sheet"] = sheet_name  # track source tab
                         raw_rows.append(row_dict)
 
@@ -837,12 +977,19 @@ class AgentPipeline:
             # paragraphs and full-text are fallbacks for unstructured documents.
             raw_rows = _parse_docx_rows(filepath)
 
+        elif ext == "pdf":
+            raw_rows = _parse_pdf_rows(filepath)
+            if not raw_rows:
+                self.emit("agent_progress", "Parser Agent",
+                          "⚠ PDF parsing failed — install pdfplumber: pip install pdfplumber")
+
         if not raw_rows:
             return []
 
-        # Determine minimum text length: DOCX paragraph rows need a higher bar
+        # Determine minimum text length: DOCX/PDF paragraph rows need a higher bar
         # than structured CSV/XLSX cells to filter noise.
-        is_docx = ext == "docx"
+        # Both DOCX and PDF use normalised {"requirement": ..., "section": ...} row dicts.
+        is_docx = ext in ("docx", "pdf")
         _min_text_len = 20 if is_docx else 10
 
         headers_list = list(raw_rows[0].keys())
@@ -1054,7 +1201,7 @@ okta_products options: OIG, LCM, Workflows, SSO, MFA, Universal Directory, PAM, 
                             "content": web_result,
                         })
                     elif block.name == "search_knowledge_base":
-                        kb = self.db.search_knowledge_base(block.input.get("query", ""), limit=3)
+                        kb = _hybrid_kb_search(self.db, block.input.get("query", ""), limit=3)
                         result_text = json.dumps([
                             {"question": r["question"][:150], "answer": r["answer"][:300],
                              "category": r["category"]}
@@ -1243,21 +1390,36 @@ class KBDirectIngestionAgent:
 
             for sheet_name in candidate_sheets:
                 ws = wb[sheet_name]
+                # Resolve merged cells: non-anchor cells return None with values_only=True
+                merge_map: dict = {}
+                for rng in ws.merged_cells.ranges:
+                    anchor_val = ws.cell(rng.min_row, rng.min_col).value
+                    for ri in range(rng.min_row, rng.max_row + 1):
+                        for ci in range(rng.min_col, rng.max_col + 1):
+                            merge_map[(ri, ci)] = anchor_val
                 headers = None
-                for row in ws.iter_rows(values_only=True):
-                    if not any(c for c in row if c is not None):
+                for row in ws.iter_rows(values_only=False):
+                    resolved = [merge_map.get((cell.row, cell.column), cell.value)
+                                for cell in row]
+                    if not any(c for c in resolved if c is not None):
                         continue
                     if headers is None:
                         headers = [str(c).strip() if c is not None else f"col_{i}"
-                                   for i, c in enumerate(row)]
+                                   for i, c in enumerate(resolved)]
                     else:
-                        row_dict = {headers[i]: row[i]
-                                    for i in range(min(len(headers), len(row)))}
+                        row_dict = {headers[i]: resolved[i]
+                                    for i in range(min(len(headers), len(resolved)))}
                         row_dict["_sheet"] = sheet_name
                         raw_rows.append(row_dict)
 
         elif ext == "docx":
             raw_rows = _parse_docx_rows(filepath)
+
+        elif ext == "pdf":
+            raw_rows = _parse_pdf_rows(filepath)
+            if not raw_rows:
+                self.emit("agent_progress",
+                          "⚠ PDF parsing failed or file is empty. Install pdfplumber: pip install pdfplumber")
 
         return raw_rows
 
@@ -1678,8 +1840,8 @@ def ai_search_knowledge_base(api_key: str, db, query: str) -> dict:
     client  = _make_client(api_key)
     entries = db.get_kb_entries(limit=100)
 
-    # Always include FTS fallback results so we have something to BLUF
-    fts_results = db.search_knowledge_base(query, limit=8)
+    # Always include hybrid RRF results so we have something to BLUF
+    fts_results = _hybrid_kb_search(db, query, limit=8)
 
     if not entries:
         return {"bluf": None, "results": fts_results, "query": query}
