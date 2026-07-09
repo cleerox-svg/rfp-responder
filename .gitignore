@@ -1,0 +1,21 @@
+# Database
+*.db
+
+# Uploaded RFP files
+uploads/
+
+# Generated exports
+exports/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
