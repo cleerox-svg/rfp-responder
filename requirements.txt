@@ -1,0 +1,7 @@
+flask
+anthropic
+openpyxl
+python-docx
+pdfplumber
+httpx
+gunicorn

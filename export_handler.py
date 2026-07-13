@@ -6,9 +6,12 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from copy import copy
 
 
+_EXPORTS_DIR = os.environ.get("EXPORTS_DIR", "exports")
+
+
 def export_rfp(filepath, questions, rfp_id):
     ext = filepath.rsplit(".", 1)[-1].lower()
-    os.makedirs("exports", exist_ok=True)
+    os.makedirs(_EXPORTS_DIR, exist_ok=True)
 
     if ext == "csv":
         return _export_csv(filepath, questions, rfp_id)
@@ -100,7 +103,7 @@ def _export_xlsx(filepath, questions, rfp_id):
 
     # Preserve original extension so .xlsm stays .xlsm (macros intact)
     out_ext = ext if ext in ("xlsm",) else "xlsx"
-    export_path = os.path.join("exports", f"rfp_{rfp_id}_naughtrfp_export.{out_ext}")
+    export_path = os.path.join(_EXPORTS_DIR, f"rfp_{rfp_id}_naughtrfp_export.{out_ext}")
     wb.save(export_path)
     return export_path
 
@@ -129,7 +132,7 @@ def _export_csv(filepath, questions, rfp_id):
                 row["Vendor Comments"] = answer
                 break
 
-    export_path = os.path.join("exports", f"rfp_{rfp_id}_naughtrfp_export.csv")
+    export_path = os.path.join(_EXPORTS_DIR, f"rfp_{rfp_id}_naughtrfp_export.csv")
     with open(export_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
@@ -289,6 +292,6 @@ def _export_docx(filepath, questions, rfp_id):
                 if hex_color:
                     _set_cell_shading(row_cells[1], hex_color)
 
-    export_path = os.path.join("exports", f"rfp_{rfp_id}_naughtrfp_export.docx")
+    export_path = os.path.join(_EXPORTS_DIR, f"rfp_{rfp_id}_naughtrfp_export.docx")
     export_doc.save(export_path)
     return export_path

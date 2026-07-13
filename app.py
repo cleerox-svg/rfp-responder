@@ -22,14 +22,15 @@ from discovery import run_discovery, get_discovery_keywords
 from relevance import filter_results
 
 app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = "uploads"
+app.config["UPLOAD_FOLDER"] = os.environ.get("UPLOAD_FOLDER", "uploads")
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "naughtrfp-dev-secret-change-in-prod")
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
-os.makedirs("exports", exist_ok=True)
+_exports_dir = os.environ.get("EXPORTS_DIR", "exports")
+os.makedirs(_exports_dir, exist_ok=True)
 
-db = Database("naughtrfp.db")
+db = Database(os.environ.get("DATABASE_PATH", "naughtrfp.db"))
 db.init()
 
 # Bootstrap settings from environment variables so judges can configure via
@@ -1575,5 +1576,8 @@ def get_usage():
 
 
 if __name__ == "__main__":
-    print("\n  NaughtRFP is running at http://localhost:5000\n")
-    app.run(debug=True, port=5000, threaded=True, use_reloader=False)
+    _port = int(os.environ.get("PORT", 5000))
+    _debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    _host = os.environ.get("FLASK_HOST", "0.0.0.0")
+    print(f"\n  NaughtRFP is running at http://{_host}:{_port}\n")
+    app.run(debug=_debug, host=_host, port=_port, threaded=True, use_reloader=False)
