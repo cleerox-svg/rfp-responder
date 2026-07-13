@@ -1,0 +1,54 @@
+name: Deploy to rfp.naughtid.com
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            set -e
+            echo "── Pulling latest code ──"
+            cd ~/rfp-responder
+            git pull origin master
+
+            echo "── Rebuilding Docker image ──"
+            docker compose build --no-cache app
+
+            echo "── Restarting containers ──"
+            docker compose up -d --no-deps app
+
+            echo "── Health check ──"
+            sleep 10
+            for i in $(seq 1 6); do
+              STATUS=$(curl -sf --max-time 5 http://localhost:5000/api/kb/stats > /dev/null && echo "ok" || echo "fail")
+              if [ "$STATUS" = "ok" ]; then
+                echo "✓ App is healthy"
+                exit 0
+              fi
+              echo "  Waiting... ($i/6)"
+              sleep 5
+            done
+            echo "✗ Health check failed after 40s"
+            docker compose logs --tail=30 app
+            exit 1
+
+      - name: Notify success
+        if: success()
+        run: echo "✅ Deployed to https://rfp.naughtid.com"
+
+      - name: Notify failure
+        if: failure()
+        run: echo "❌ Deploy failed — check the logs above"

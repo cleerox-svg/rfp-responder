@@ -1,0 +1,21 @@
+version: '3.8'
+
+# docker-compose-init.yml — used ONLY during initial Certbot cert issuance.
+#
+# Workflow:
+#   1. docker compose -f docker-compose-init.yml up -d
+#   2. sudo certbot certonly --webroot -w /var/www/certbot -d rfp.naughtid.com ...
+#   3. docker compose -f docker-compose-init.yml down
+#   4. docker compose up -d          # full stack with SSL
+
+services:
+  nginx-init:
+    image: nginx:alpine
+    restart: "no"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-init.conf:/etc/nginx/conf.d/default.conf:ro
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro

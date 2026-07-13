@@ -15,7 +15,7 @@ echo "  NaughtRFP — AWS EC2 Setup"
 echo "  ─────────────────────────────────────────"
 
 # ── 1. Install Docker ──────────────────────────────────────────────────────
-echo "  [1/5] Installing Docker..."
+echo "  [1/6] Installing Docker..."
 
 if command -v dnf &>/dev/null; then
     # Amazon Linux 2023
@@ -55,7 +55,7 @@ else
 fi
 
 # ── 2. Install Docker Compose plugin ──────────────────────────────────────
-echo "  [2/5] Installing Docker Compose..."
+echo "  [2/6] Installing Docker Compose..."
 DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}
 mkdir -p "$DOCKER_CONFIG/cli-plugins"
 curl -SL "https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-$(uname -s)-$(uname -m)" \
@@ -63,7 +63,7 @@ curl -SL "https://github.com/docker/compose/releases/download/v2.27.0/docker-com
 chmod +x "$DOCKER_CONFIG/cli-plugins/docker-compose"
 
 # ── 3. Clone / update repo ────────────────────────────────────────────────
-echo "  [3/5] Getting NaughtRFP..."
+echo "  [3/6] Getting NaughtRFP..."
 if [ -d "rfp-responder/.git" ]; then
     echo "  Repo already exists — pulling latest..."
     cd rfp-responder
@@ -74,7 +74,7 @@ else
 fi
 
 # ── 4. Configure .env ─────────────────────────────────────────────────────
-echo "  [4/5] Configuring environment..."
+echo "  [4/6] Configuring environment..."
 if [ ! -f ".env" ]; then
     # Copy template (skip .env.example permission issues — write directly)
     cat > .env << 'ENVEOF'
@@ -95,7 +95,7 @@ FLASK_SECRET_KEY=REPLACE-WITH-RANDOM-SECRET
 # Okta OIDC auth (optional — disabled by default)
 # OKTA_DOMAIN=https://your-org.okta.com
 # OKTA_CLIENT_ID=your-client-id
-# OKTA_REDIRECT_URI=http://YOUR_EC2_IP/auth/callback
+# OKTA_REDIRECT_URI=https://rfp.naughtid.com/auth/callback
 ENVEOF
 
     # Generate a random secret key
@@ -114,7 +114,7 @@ ENVEOF
 fi
 
 # ── 5. Build and start ────────────────────────────────────────────────────
-echo "  [5/5] Building and starting NaughtRFP..."
+echo "  [5/6] Building and starting NaughtRFP..."
 # Use sg to apply docker group without requiring logout
 sg docker -c "docker compose build --no-cache && docker compose up -d" 2>/dev/null \
     || docker compose build --no-cache && docker compose up -d
@@ -128,6 +128,52 @@ EC2_IP=$(curl -sf --connect-timeout 3 http://169.254.169.254/latest/meta-data/pu
           || hostname -I | awk '{print $1}')
 
 echo "  Open http://${EC2_IP} in your browser."
+echo ""
+
+# ── 6. Set up HTTPS with Let's Encrypt (Certbot) ──────────────────────────
+echo ""
+read -p "  Set up HTTPS for rfp.naughtid.com? (y/N) " DO_HTTPS
+if [[ "$DO_HTTPS" =~ ^[Yy]$ ]]; then
+    echo "  [6/6] Installing Certbot and issuing TLS certificate..."
+
+    DOMAIN="rfp.naughtid.com"
+    EMAIL="claude.leroux@okta.com"
+
+    # Install certbot
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y certbot python3-certbot-nginx
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y certbot python3-certbot-nginx
+    fi
+
+    # Stop nginx container so certbot can use port 80
+    sg docker -c "docker compose stop nginx" 2>/dev/null || docker compose stop nginx
+
+    # Issue certificate (standalone mode on port 80)
+    sudo certbot certonly --standalone \
+        --non-interactive \
+        --agree-tos \
+        --email "$EMAIL" \
+        -d "$DOMAIN"
+
+    # Create webroot dir for future renewals
+    sudo mkdir -p /var/www/certbot
+
+    # Restart full stack — nginx.conf now has SSL blocks
+    sg docker -c "docker compose up -d" 2>/dev/null || docker compose up -d
+
+    # Set up auto-renewal cron
+    # Pre-hook stops nginx; post-hook restarts it after renewal
+    COMPOSE_PATH="/home/$USER/rfp-responder"
+    (sudo crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --pre-hook 'docker compose -f ${COMPOSE_PATH}/docker-compose.yml stop nginx' --post-hook 'docker compose -f ${COMPOSE_PATH}/docker-compose.yml start nginx'") | sudo crontab -
+
+    echo ""
+    echo "  ✓ HTTPS configured for https://${DOMAIN}"
+    echo "  ✓ Auto-renewal cron job installed (runs daily at 03:00)"
+    echo ""
+    echo "  Open https://${DOMAIN} in your browser."
+fi
+
 echo ""
 echo "  First-time setup in the app:"
 echo "    1. Go to Settings → verify API key → Test Connection"

@@ -2,6 +2,8 @@
 
 > **Hackathon submission — Okta Pre-Sales SE Team | Theme: Agentic AI | July 2026**
 
+[![Deploy to AWS](https://github.com/cleerox-svg/rfp-responder/actions/workflows/deploy.yml/badge.svg)](https://github.com/cleerox-svg/rfp-responder/actions/workflows/deploy.yml)
+
 NaughtRFP is an autonomous, multi-agent platform that transforms how Solutions Engineers respond to Request for Proposals (RFPs). Instead of manually answering hundreds of security and technical requirements, nine specialised AI agents collaborate in real time to parse, analyse, research, answer, score, and review each requirement — all while building a growing knowledge base from every completed RFP.
 
 ---
@@ -441,6 +443,9 @@ rfp-responder/
 ├── relevance.py        Relevance scoring for discovered RFPs
 ├── sample_rfp.csv      34-requirement IGA RFP for testing
 ├── setup.sh            One-command Mac/Linux setup (venv + deps + .env)
+├── deploy/
+│   ├── aws-setup.sh    One-shot EC2 setup (Docker, Compose, .env, Certbot HTTPS)
+│   └── DEPLOY.md       Full AWS deployment guide (Route 53, Elastic IP, SSL)
 ├── .env.example        Credential template — copy to .env and fill in API key
 ├── SESSION_LOG.md      Full build session log — decisions, problems, prompts
 ├── CLAUDE.md           Claude Code project instructions
