@@ -405,6 +405,14 @@
             <div class="settings-hint">OIDC app client ID from the Okta Admin Console</div>
           </div>
           <div>
+            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+              Client Secret
+              <span id="okta-client-secret-indicator" class="badge badge-muted">Not set</span>
+            </div>
+            <input class="settings-input" id="okta-client-secret" type="password" placeholder="Enter client secret to update" style="width:100%" />
+            <div class="settings-hint">OIDC app client secret — value is never displayed once saved</div>
+          </div>
+          <div>
             <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">Redirect URI</div>
             <input class="settings-input" id="okta-redirect-uri" type="text" placeholder="http://localhost:5000/auth/callback" style="width:100%" />
             <div class="settings-hint">Must match the redirect URI configured in the Okta OIDC app</div>

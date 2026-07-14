@@ -2361,6 +2361,14 @@ async function renderSettings() {
   document.getElementById('web-search-toggle').checked = s.web_search_enabled !== false;
   document.getElementById('okta-domain').value = s.okta_domain || '';
   document.getElementById('okta-client-id').value = s.okta_client_id || '';
+  const secretIndicator = document.getElementById('okta-client-secret-indicator');
+  if (s.okta_client_secret_set) {
+    secretIndicator.className = 'badge badge-green';
+    secretIndicator.textContent = '✓ Set';
+  } else {
+    secretIndicator.className = 'badge badge-muted';
+    secretIndicator.textContent = 'Not set';
+  }
   document.getElementById('okta-redirect-uri').value = s.okta_redirect_uri || 'http://localhost:5000/auth/callback';
   document.getElementById('okta-auth-enabled').checked = s.okta_auth_enabled === true;
   updateApiDot(s.api_key_set);
@@ -2368,16 +2376,22 @@ async function renderSettings() {
 
 async function saveOktaSettings() {
   const el = document.getElementById('okta-save-result');
+  const secretInput = document.getElementById('okta-client-secret');
   const payload = {
     okta_domain: document.getElementById('okta-domain').value.trim(),
     okta_client_id: document.getElementById('okta-client-id').value.trim(),
     okta_redirect_uri: document.getElementById('okta-redirect-uri').value.trim(),
     okta_auth_enabled: document.getElementById('okta-auth-enabled').checked,
   };
+  if (secretInput.value.trim()) {
+    payload.okta_client_secret = secretInput.value.trim();
+  }
   const res = await API.post('/api/settings', payload);
   if (res.success) {
     el.style.color = 'var(--green)';
     el.textContent = '✓ Saved';
+    secretInput.value = '';
+    await renderSettings();
     setTimeout(() => { el.textContent = ''; }, 3000);
   } else {
     el.style.color = 'var(--red)';

@@ -40,9 +40,10 @@ def _env_bootstrap():
     _env_map = {
         "LITELLM_API_KEY":   "anthropic_api_key",
         "LITELLM_BASE_URL":  "litellm_base_url",
-        "OKTA_DOMAIN":       "okta_domain",
-        "OKTA_CLIENT_ID":    "okta_client_id",
-        "OKTA_REDIRECT_URI": "okta_redirect_uri",
+        "OKTA_DOMAIN":         "okta_domain",
+        "OKTA_CLIENT_ID":      "okta_client_id",
+        "OKTA_CLIENT_SECRET":  "okta_client_secret",
+        "OKTA_REDIRECT_URI":   "okta_redirect_uri",
     }
     for env_var, setting_key in _env_map.items():
         val = os.environ.get(env_var, "").strip()
@@ -275,6 +276,7 @@ def get_settings():
         "web_search_enabled": db.get_setting("web_search_enabled") != "false",
         "okta_domain": db.get_setting("okta_domain") or "",
         "okta_client_id": db.get_setting("okta_client_id") or "",
+        "okta_client_secret_set": bool(db.get_setting("okta_client_secret")),
         "okta_redirect_uri": db.get_setting("okta_redirect_uri") or "http://localhost:5000/auth/callback",
         "okta_auth_enabled": db.get_setting("okta_auth_enabled") == "true",
     })
@@ -301,6 +303,8 @@ def save_settings():
         db.set_setting("okta_domain", data["okta_domain"].strip())
     if "okta_client_id" in data:
         db.set_setting("okta_client_id", data["okta_client_id"].strip())
+    if "okta_client_secret" in data:
+        db.set_setting("okta_client_secret", data["okta_client_secret"].strip())
     if "okta_redirect_uri" in data:
         db.set_setting("okta_redirect_uri", data["okta_redirect_uri"].strip())
     if "okta_auth_enabled" in data:
@@ -421,23 +425,38 @@ def auth_callback():
     code = request.args.get("code")
     if not code:
         return "Missing authorisation code.", 400
-    okta_domain  = db.get_setting("okta_domain", "")
-    client_id    = db.get_setting("okta_client_id", "")
-    redirect_uri = db.get_setting("okta_redirect_uri", "http://localhost:5000/auth/callback")
-    # Exchange code for tokens (requires client_secret for confidential apps;
-    # use PKCE verifier here for public/SPA apps)
+    okta_domain   = db.get_setting("okta_domain", "")
+    client_id     = db.get_setting("okta_client_id", "")
+    client_secret = db.get_setting("okta_client_secret", "")
+    redirect_uri  = db.get_setting("okta_redirect_uri", "http://localhost:5000/auth/callback")
+    if not client_secret:
+        return "Okta client_secret not configured — set it in Settings.", 400
+    # Exchange code for tokens
     token_url = f"{okta_domain.rstrip('/')}/oauth2/v1/token"
     resp = httpx.post(token_url, data={
-        "grant_type":   "authorization_code",
-        "code":         code,
-        "redirect_uri": redirect_uri,
-        "client_id":    client_id,
+        "grant_type":    "authorization_code",
+        "code":          code,
+        "redirect_uri":  redirect_uri,
+        "client_id":     client_id,
+        "client_secret": client_secret,
     }, verify=False)
     if resp.status_code != 200:
         return f"Token exchange failed: {resp.text}", 400
     tokens = resp.json()
-    # Store minimal session — in production, validate the ID token signature
-    session["user"] = {"email": tokens.get("id_token", "unknown")}
+    # Fetch real user info — id_token is a raw JWT, not an email
+    userinfo_resp = httpx.get(
+        f"{okta_domain.rstrip('/')}/oauth2/v1/userinfo",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        verify=False,
+    )
+    if userinfo_resp.status_code != 200:
+        return f"Failed to fetch user info: {userinfo_resp.text}", 400
+    user_info = userinfo_resp.json()
+    session["user"] = {
+        "email": user_info.get("email", "unknown"),
+        "name":  user_info.get("name", ""),
+        "sub":   user_info.get("sub", ""),
+    }
     return redirect("/")
 
 
@@ -448,11 +467,24 @@ def auth_logout():
         return redirect("/")
     okta_domain = db.get_setting("okta_domain", "")
     client_id   = db.get_setting("okta_client_id", "")
+    _post_logout = db.get_setting("okta_redirect_uri", "").replace("/auth/callback", "/") or "https://rfp.naughtid.com/"
     params = urllib.parse.urlencode({
-        "client_id":    client_id,
-        "post_logout_redirect_uri": "http://localhost:5000/",
+        "client_id":                client_id,
+        "post_logout_redirect_uri": _post_logout,
     })
     return redirect(f"{okta_domain.rstrip('/')}/oauth2/v1/logout?{params}")
+
+
+@app.before_request
+def require_auth():
+    """Redirect unauthenticated users to login when Okta auth is enabled."""
+    if db.get_setting("okta_auth_enabled") != "true":
+        return  # auth disabled — open access
+    exempt_prefixes = ("/auth/", "/static/")
+    if any(request.path.startswith(p) for p in exempt_prefixes):
+        return
+    if not session.get("user"):
+        return redirect("/auth/login")
 
 
 @app.route("/api/test-connection", methods=["POST"])
