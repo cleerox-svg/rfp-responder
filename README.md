@@ -4,6 +4,8 @@
 
 [![Deploy to AWS](https://github.com/cleerox-svg/rfp-responder/actions/workflows/deploy.yml/badge.svg)](https://github.com/cleerox-svg/rfp-responder/actions/workflows/deploy.yml)
 
+**Live demo:** https://rfp.naughtid.com
+
 NaughtRFP is an autonomous, multi-agent platform that transforms how Solutions Engineers respond to Request for Proposals (RFPs). Instead of manually answering hundreds of security and technical requirements, nine specialised AI agents collaborate in real time to parse, analyse, research, answer, score, and review each requirement — all while building a growing knowledge base from every completed RFP.
 
 ---
