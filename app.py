@@ -398,9 +398,9 @@ import urllib.parse
 def auth_login():
     if db.get_setting("okta_auth_enabled") != "true":
         return redirect("/")
-    okta_domain = db.get_setting("okta_domain", "")
-    client_id   = db.get_setting("okta_client_id", "")
-    redirect_uri = db.get_setting("okta_redirect_uri", "http://localhost:5000/auth/callback")
+    okta_domain  = db.get_setting("okta_domain") or ""
+    client_id    = db.get_setting("okta_client_id") or ""
+    redirect_uri = db.get_setting("okta_redirect_uri") or "http://localhost:5000/auth/callback"
     if not okta_domain or not client_id:
         return "Okta not configured — set domain and client ID in Settings.", 400
     state = secrets.token_urlsafe(16)
@@ -425,10 +425,10 @@ def auth_callback():
     code = request.args.get("code")
     if not code:
         return "Missing authorisation code.", 400
-    okta_domain   = db.get_setting("okta_domain", "")
-    client_id     = db.get_setting("okta_client_id", "")
-    client_secret = db.get_setting("okta_client_secret", "")
-    redirect_uri  = db.get_setting("okta_redirect_uri", "http://localhost:5000/auth/callback")
+    okta_domain   = db.get_setting("okta_domain") or ""
+    client_id     = db.get_setting("okta_client_id") or ""
+    client_secret = db.get_setting("okta_client_secret") or ""
+    redirect_uri  = db.get_setting("okta_redirect_uri") or "http://localhost:5000/auth/callback"
     if not client_secret:
         return "Okta client_secret not configured — set it in Settings.", 400
     # Exchange code for tokens
@@ -465,9 +465,9 @@ def auth_logout():
     user = session.pop("user", None)
     if db.get_setting("okta_auth_enabled") != "true" or not user:
         return redirect("/")
-    okta_domain = db.get_setting("okta_domain", "")
-    client_id   = db.get_setting("okta_client_id", "")
-    _post_logout = db.get_setting("okta_redirect_uri", "").replace("/auth/callback", "/") or "https://rfp.naughtid.com/"
+    okta_domain  = db.get_setting("okta_domain") or ""
+    client_id    = db.get_setting("okta_client_id") or ""
+    _post_logout = (db.get_setting("okta_redirect_uri") or "").replace("/auth/callback", "/") or "https://rfp.naughtid.com/"
     params = urllib.parse.urlencode({
         "client_id":                client_id,
         "post_logout_redirect_uri": _post_logout,
