@@ -21,7 +21,7 @@ jobs:
           script: |
             set -e
             echo "── Pulling latest code ──"
-            cd ~/rfp-responder
+            cd ~/rfp-responder/rfp-responder
             git pull origin master
 
             echo "── Rebuilding Docker image ──"
